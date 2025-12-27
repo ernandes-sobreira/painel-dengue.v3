@@ -84,29 +84,23 @@
     }
     .btn.ghost{background: rgba(255,255,255,.6); border-color: var(--stroke);}
     .mini{font-size:12px; color:var(--muted); margin-top:8px;}
-    .list{
-      margin-top:10px; display:flex; gap:8px; flex-wrap:wrap;
-    }
+    .list{ margin-top:10px; display:flex; gap:8px; flex-wrap:wrap; }
     .chip{
       font-size:12px; padding:7px 10px; border-radius:999px;
       border:1px solid var(--stroke); background: rgba(255,255,255,.7);
       display:flex; gap:8px; align-items:center;
     }
-    .chip button{
-      border:none; background:transparent; cursor:pointer; font-weight:900; color:rgba(59,10,42,.7);
-    }
+    .chip button{ border:none; background:transparent; cursor:pointer; font-weight:900; color:rgba(59,10,42,.7); }
     .chartWrap{padding:12px 14px 14px;}
-    canvas{max-width:100%}
+    /* MAIS ALTO para ficar legível */
+    #chartMain{ height: 320px !important; }
     .err{
       padding:10px 14px; border-top:1px solid var(--stroke);
       background: rgba(255,255,255,.55);
       font-size:12px; color:#7a0838;
       white-space: pre-wrap; display:none;
     }
-    footer{
-      max-width:1200px; margin: 12px auto 26px; padding: 0 18px;
-      color: var(--muted); font-size: 12px;
-    }
+    footer{ max-width:1200px; margin: 12px auto 26px; padding: 0 18px; color: var(--muted); font-size: 12px; }
     @media (max-width: 980px){ .grid{grid-template-columns:1fr} }
   </style>
 </head>
@@ -145,7 +139,6 @@
 
       <div class="content">
         <div class="row" id="controlsRow"></div>
-
         <div id="extraArea"></div>
 
         <div class="btnRow">
@@ -164,15 +157,13 @@
         <span id="metaTxt" style="font-size:12px;color:var(--muted)">—</span>
       </div>
       <div class="chartWrap">
-        <canvas id="chartMain" height="170"></canvas>
+        <canvas id="chartMain"></canvas>
       </div>
     </section>
   </div>
 </main>
 
-<footer>
-  Plataforma simples, leve e comparável • Downloads de gráfico e recorte • Estilo Guardiãs-da-Saúde.
-</footer>
+<footer></footer>
 
 <script>
 const DATA_URLS = {
@@ -187,7 +178,7 @@ const MONTHS = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov
 
 const state = {
   view: "brasil",
-  cache: {},           // key -> { rows, headerMap }
+  cache: {},
   chart: null,
   currentExport: { filename:"recorte.csv", columns:[], rows:[] },
   selectedUFs: [],
@@ -211,10 +202,12 @@ function normKey(s){
     .replace(/[^a-z0-9]+/g,"")
     .trim();
 }
+
+// Trata "-" como NaN (buraco), não como zero
 function toNum(x){
-  if (x===null || x===undefined) return 0;
+  if (x===null || x===undefined) return NaN;
   const s = String(x).trim();
-  if (!s || s==="-" ) return NaN; // importante: "-" vira NaN (buraco), não zero
+  if (!s || s==="-" ) return NaN;
   const n = Number(s.replace(/\./g,"").replace(",","."));
   return Number.isFinite(n) ? n : NaN;
 }
@@ -227,6 +220,14 @@ function pickKey(sampleRow, includesList){
     if (k) return k;
   }
   return null;
+}
+
+// Remove linhas “lixo” que vêm do rodapé/observação do Excel
+function isGarbageLabel(s){
+  const t = String(s||"").toLowerCase();
+  return t.includes("fonte") || t.includes("minist") || t.includes("sinan") ||
+         t.includes("sistema") || t.includes("inform") || t.includes("svsa") ||
+         t.includes("notifica") || t.includes("agravo") || t.includes("net");
 }
 
 /* download */
@@ -248,13 +249,21 @@ function rowsToCSV(columns, rows){
     rows.map(r => columns.map(c=>esc(r[c])).join(";")).join("\n") + "\n";
 }
 
-/* fetch CSV com mapa de headers (pra labels bonitas) */
+/* ====== CSV fetch com correção de encoding (UTF-8 -> fallback latin1) ====== */
 async function fetchCSV(url){
   const res = await fetch(url, {cache:"no-store"});
   if (!res.ok){
     throw new Error(`Falha ao baixar: ${url}\nHTTP ${res.status} ${res.statusText}\n\n👉 Confira se o arquivo está na RAIZ do repo e Pages em / (root).`);
   }
-  const text = await res.text();
+  const buf = await res.arrayBuffer();
+
+  // tenta UTF-8
+  let text = new TextDecoder("utf-8", {fatal:false}).decode(buf);
+
+  // se tiver muitos "�", tenta latin1
+  if ((text.match(/\uFFFD/g)||[]).length >= 2){
+    text = new TextDecoder("latin1", {fatal:false}).decode(buf);
+  }
 
   const parsed = Papa.parse(text, {header:true, skipEmptyLines:true, delimiter:";"});
   const fields = parsed.meta?.fields || [];
@@ -266,6 +275,7 @@ async function fetchCSV(url){
     for (const k of Object.keys(r)) o[normKey(k)] = r[k];
     return o;
   });
+
   return {rows, headerMap};
 }
 
@@ -282,40 +292,58 @@ async function getData(key){
 function destroyChart(){
   if (state.chart){ try{ state.chart.destroy(); } catch(e){} state.chart=null; }
 }
-function yRangeZoom(values){
-  // Ignora NaN (meses faltando)
+
+// Só pra deixar “amplo” e legível (não achatado)
+function yRangeReadable(values){
   const nums = values.filter(v=>Number.isFinite(v));
   if (!nums.length) return {min:0, max:1};
-  const min = Math.min(...nums), max = Math.max(...nums);
-  const span = Math.max(1, max-min);
+  const min = Math.min(...nums);
+  const max = Math.max(...nums);
+  const span = Math.max(1, max - min);
 
-  // "zoom" mais forte pra parar de parecer 0
-  const pad = span * 0.30;
+  // mais “respiro”
+  const pad = span * 0.45;
 
-  // se a série não encosta no zero, sobe o mínimo
+  // se min for muito acima de 0, sobe o início (fica “amplo” sem parecer 0)
   if (min > 0){
     return {min: Math.max(0, min - pad), max: max + pad};
   }
   return {min: 0, max: max + pad};
 }
-function makeChart({type, labels, datasets, title, yMode="zoom", yValues=[], fixedY=null}){
+
+function makeChart({type, labels, datasets, title, yValues=[], fixedY=null}){
   const ctx = $("chartMain");
-  const yr = fixedY ? fixedY : (yMode==="zoom" ? yRangeZoom(yValues) : {min:0, max: (Math.max(...yValues.filter(Number.isFinite))+1)});
+  const yr = fixedY ? fixedY : yRangeReadable(yValues);
+
   return new Chart(ctx, {
     type,
     data:{ labels, datasets },
     options:{
-      responsive:true, maintainAspectRatio:false,
+      responsive:true,
+      maintainAspectRatio:false,
       interaction:{mode:"index", intersect:false},
       plugins:{
-        legend:{ display:true, labels:{ usePointStyle:true, boxWidth:10 } },
-        title:{ display:!!title, text:title }
+        legend:{ display:true, labels:{ usePointStyle:true, boxWidth:10, font:{size:12} } },
+        title:{ display:!!title, text:title, font:{size:14} }
       },
+      layout:{ padding:{ left:10, right:16, top:8, bottom:10 } },
       scales:{
+        x:{
+          ticks:{
+            font:{ size:12 },
+            maxRotation: 35,
+            minRotation: 0,
+            autoSkip: true
+          }
+        },
         y:{
           min: yr.min,
           max: yr.max,
-          ticks:{ callback:(v)=>fmt(v) }
+          ticks:{
+            font:{ size:12 },
+            maxTicksLimit: 6,
+            callback:(v)=>fmt(v)
+          }
         }
       },
       elements:{ line:{ tension:0.25, borderWidth:2 }, point:{ radius:2, hoverRadius:5 } }
@@ -323,7 +351,7 @@ function makeChart({type, labels, datasets, title, yMode="zoom", yValues=[], fix
   });
 }
 
-/* UI controls */
+/* UI */
 function clearControls(){ $("controlsRow").innerHTML=""; $("extraArea").innerHTML=""; }
 function addField(html){
   const d=document.createElement("div");
@@ -372,10 +400,8 @@ async function buildControls(){
     return;
   }
 
-  if (v==="sexo"){
-    // sem controles
-    return;
-  }
+  if (v==="sexo"){ return; }
+  if (v==="faixa"){ return; }
 
   if (v==="escolaridade"){
     const {rows:es, headerMap} = await getData("escolaridade");
@@ -400,11 +426,6 @@ async function buildControls(){
     return;
   }
 
-  if (v==="faixa"){
-    // sem controles
-    return;
-  }
-
   if (v==="estados"){
     const {rows:est} = await getData("estados");
     const ufs = est.map(r=>String(r.estado||"").trim()).filter(Boolean);
@@ -412,9 +433,9 @@ async function buildControls(){
     addField(`<label>Adicionar Estado</label>
       <select id="ufAdd">${ufs.map(u=>`<option>${u}</option>`).join("")}</select>`);
 
-    const extra = document.createElement("div");
-    extra.className="mini";
-    extra.textContent = "Clique em “Adicionar” para comparar vários estados no mesmo gráfico (mesmo eixo Y).";
+    const box = document.createElement("div");
+    box.style.marginTop="10px";
+
     const btn = document.createElement("button");
     btn.className="btn ghost";
     btn.textContent="＋ Adicionar";
@@ -424,10 +445,12 @@ async function buildControls(){
       buildControls().then(render);
     });
 
-    const box = document.createElement("div");
-    box.style.marginTop="10px";
+    const hint = document.createElement("div");
+    hint.className="mini";
+    hint.textContent="Comparação com mesmo eixo Y (para não enganar a comparação).";
+
     box.appendChild(btn);
-    box.appendChild(extra);
+    box.appendChild(hint);
 
     const chips = renderChips(state.selectedUFs, (i)=>{
       state.selectedUFs.splice(i,1);
@@ -437,23 +460,21 @@ async function buildControls(){
 
     $("extraArea").appendChild(box);
 
-    // padrão: começa com 1 UF
     if (state.selectedUFs.length===0) state.selectedUFs=[ufs[0]];
     return;
   }
 
   if (v==="municipios"){
     const {rows:mun} = await getData("municipios");
-    // arquivo veio com possível mojibake no header; pega a chave que contém "munic"
     const munKey = pickKey(mun[0], ["municip","munic"]);
     const muns = mun.map(r=>String(r[munKey]||"").trim()).filter(Boolean).sort((a,b)=>a.localeCompare(b,'pt-BR'));
 
     addField(`<label>Adicionar Município</label>
       <select id="munAdd">${muns.map(m=>`<option>${m}</option>`).join("")}</select>`);
 
-    const extra = document.createElement("div");
-    extra.className="mini";
-    extra.textContent = "Comparação dentro da Regional de Cáceres (mesmo eixo Y).";
+    const box = document.createElement("div");
+    box.style.marginTop="10px";
+
     const btn = document.createElement("button");
     btn.className="btn ghost";
     btn.textContent="＋ Adicionar";
@@ -463,10 +484,12 @@ async function buildControls(){
       buildControls().then(render);
     });
 
-    const box = document.createElement("div");
-    box.style.marginTop="10px";
+    const hint = document.createElement("div");
+    hint.className="mini";
+    hint.textContent="Comparação com mesmo eixo Y (Regional de Cáceres).";
+
     box.appendChild(btn);
-    box.appendChild(extra);
+    box.appendChild(hint);
 
     const chips = renderChips(state.selectedMuns, (i)=>{
       state.selectedMuns.splice(i,1);
@@ -481,7 +504,6 @@ async function buildControls(){
   }
 }
 
-/* render */
 async function render(){
   clearErr();
   destroyChart();
@@ -505,8 +527,7 @@ async function render(){
         labels,
         datasets:[{label:"Total (Brasil)", data: vals}],
         title:"Evolução anual — Brasil",
-        yValues: vals,
-        yMode:"zoom"
+        yValues: vals
       });
 
       state.currentExport.filename="brasil_anual.csv";
@@ -516,7 +537,6 @@ async function render(){
       return;
     }
 
-    // mensal
     const compare = $("brCompare")?.value==="sim";
     const anoA = $("brAnoA")?.value;
     const anoB = $("brAnoB")?.value;
@@ -530,7 +550,6 @@ async function render(){
 
     const A = seriesForYear(anoA);
     const datasets = [{label:`${anoA}`, data:A.arr.map(x=>Number.isFinite(x)?x:null)}];
-
     let allVals = A.arr.filter(Number.isFinite);
 
     let note = "";
@@ -548,8 +567,7 @@ async function render(){
       labels: MONTHS,
       datasets,
       title: compare ? `Brasil — mensal (${anoA} vs ${anoB})` : `Brasil — mensal (${anoA})`,
-      yValues: allVals,
-      yMode:"zoom"
+      yValues: allVals
     });
 
     state.currentExport.filename = compare ? `brasil_mensal_${anoA}_vs_${anoB}.csv` : `brasil_mensal_${anoA}.csv`;
@@ -589,8 +607,7 @@ async function render(){
         {label: headerMap[femKey]  || "Feminino",  data: fem}
       ],
       title:"Casos por sexo (anual)",
-      yValues: all,
-      yMode:"zoom"
+      yValues: all
     });
 
     state.currentExport.filename="sexo_anual.csv";
@@ -615,16 +632,18 @@ async function render(){
       const idx = years.indexOf(ano);
       const row = es[idx] || es[0];
 
-      const labels = keys.map(k=>headerMap[k] || k);
-      const vals = keys.map(k=>toNum(row[k])).map(x=>Number.isFinite(x)?x:0);
+      const labels = keys.map(k=>headerMap[k] || k).filter(l=>!isGarbageLabel(l));
+      const vals = keys
+        .map(k=>({label: headerMap[k] || k, v: toNum(row[k])}))
+        .filter(o=>!isGarbageLabel(o.label))
+        .map(o=>Number.isFinite(o.v)?o.v:0);
 
       state.chart = makeChart({
         type:"bar",
         labels,
         datasets:[{label:`Total ${ano}`, data: vals}],
         title:`Escolaridade — ${ano}`,
-        yValues: vals,
-        yMode:"zoom"
+        yValues: vals
       });
 
       state.currentExport.filename=`escolaridade_${ano}.csv`;
@@ -642,8 +661,7 @@ async function render(){
         labels,
         datasets:[{label: headerMap[k] || k, data: vals}],
         title:`Escolaridade — série (${headerMap[k] || k})`,
-        yValues: vals,
-        yMode:"zoom"
+        yValues: vals
       });
 
       state.currentExport.filename=`escolaridade_serie.csv`;
@@ -655,7 +673,7 @@ async function render(){
   }
 
   if (v==="faixa"){
-    const {rows:fx, headerMap} = await getData("faixa");
+    const {rows:fx} = await getData("faixa");
     $("rightTitle").textContent="Faixa etária — Total";
 
     const faixaKey = pickKey(fx[0], ["faixaetaria","faixa"]);
@@ -664,9 +682,9 @@ async function render(){
     const pairs = fx.map(r=>({
       faixa: String(r[faixaKey]||"").trim(),
       total: toNum(r[totalKey])
-    })).filter(p=>p.faixa);
+    }))
+    .filter(p=>p.faixa && !isGarbageLabel(p.faixa));
 
-    // ordena por total desc pra ficar legível
     pairs.sort((a,b)=>(Number.isFinite(b.total)?b.total:0)-(Number.isFinite(a.total)?a.total:0));
 
     const labels = pairs.map(p=>p.faixa);
@@ -677,8 +695,7 @@ async function render(){
       labels,
       datasets:[{label:"Total", data: vals}],
       title:"Distribuição por faixa etária (total geral)",
-      yValues: vals,
-      yMode:"zoom"
+      yValues: vals
     });
 
     state.currentExport.filename="faixa_etaria_total.csv";
@@ -694,9 +711,7 @@ async function render(){
 
     if (!state.selectedUFs.length) { $("metaTxt").textContent="Adicione pelo menos 1 estado."; return; }
 
-    // anos = colunas 2014..2025
     const years = Object.keys(est[0]||{}).filter(k=>/^\d{4}$/.test(k)).sort();
-
     const datasets = [];
     let globalMax = 0;
 
@@ -708,25 +723,23 @@ async function render(){
       datasets.push({label: uf, data: vals});
     }
 
-    const fixedY = {min:0, max: globalMax*1.10 || 1};
-
+    const fixedY = {min:0, max: (globalMax*1.25 || 1)}; // mais amplo
     state.chart = makeChart({
       type:"line",
       labels: years,
       datasets,
       title:"Evolução anual — comparação de estados",
-      yValues: [globalMax],
-      yMode:"fixed",
+      yValues:[globalMax],
       fixedY
     });
 
     state.currentExport.filename="estados_comparacao.csv";
     state.currentExport.columns=["Ano"].concat(state.selectedUFs);
-    state.currentExport.rows = years.map((y, i)=>{
+    state.currentExport.rows = years.map((y)=>{
       const obj={Ano:y};
       for (const uf of state.selectedUFs){
         const row = est.find(r=>String(r.estado||"").trim()===uf);
-        obj[uf] = row ? (toNum(row[y]) || 0) : "";
+        obj[uf] = row ? (Number.isFinite(toNum(row[y])) ? toNum(row[y]) : 0) : "";
       }
       return obj;
     });
@@ -755,15 +768,13 @@ async function render(){
       datasets.push({label:name, data: vals});
     }
 
-    const fixedY = {min:0, max: globalMax*1.10 || 1};
-
+    const fixedY = {min:0, max: (globalMax*1.25 || 1)}; // mais amplo
     state.chart = makeChart({
       type:"line",
       labels: years,
       datasets,
       title:"Evolução anual — municípios (comparação)",
-      yValues: [globalMax],
-      yMode:"fixed",
+      yValues:[globalMax],
       fixedY
     });
 
@@ -773,7 +784,7 @@ async function render(){
       const obj={Ano:y};
       for (const name of state.selectedMuns){
         const row = mun.find(r=>String(r[munKey]||"").trim()===name);
-        obj[name] = row ? (toNum(row[y]) || 0) : "";
+        obj[name] = row ? (Number.isFinite(toNum(row[y])) ? toNum(row[y]) : 0) : "";
       }
       return obj;
     });
