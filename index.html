@@ -123,7 +123,7 @@
       padding:10px 12px;
       border-radius:14px;
       cursor:pointer;
-      font-weight: 700;
+      font-weight: 800;
       font-size: 13px;
       display:flex; align-items:center; gap:8px;
       user-select:none;
@@ -193,7 +193,7 @@
         <button class="btn ghost" id="btnReload">↻ Recarregar</button>
       </div>
 
-      <div class="tabs" id="tabs">
+      <div class="tabs">
         <div class="tab active" data-view="brasil"><span class="pill"></span> Brasil</div>
         <div class="tab" data-view="estados"><span class="pill"></span> Estados</div>
         <div class="tab" data-view="municipios"><span class="pill"></span> Municípios</div>
@@ -258,23 +258,28 @@
 </main>
 
 <script>
-/* ======= 1) URLs (mesmo nível do index.html no repo) ======= */
+/* =========================
+   1) ARQUIVOS (na raiz)
+   ========================= */
+// Municípios: TROQUE para o arquivo leve da Regional de Cáceres:
 const DATA_URLS = {
   brasil:        "dados-dengue.csv",
   estados:       "dados-dengue-estados.csv",
-  municipios: "dados-dengue-municipios-regional-caceres.csv",
+  municipios:    "dados-dengue-municipios-regional-caceres.csv", // ✅ leve
   sexo:          "dados-dengue-sexo.csv",
   raca:          "dados-dengue-raca.csv",
   faixa:         "dados-dengue-faixa-etaria.csv",
   escolaridade:  "dados-dengue-escolaridade.csv",
 };
 
-/* ======= 2) estado ======= */
+/* =========================
+   2) estado
+   ========================= */
 const state = {
   view: "brasil",
-  cache: {},           // guarda datasets já carregados
+  cache: {},
   charts: { main:null, alt:null },
-  selection: { estado:null, municipio:null, ano:null }
+  selection: { municipio:null }
 };
 
 const MONTHS = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"];
@@ -287,7 +292,6 @@ function setStatus(ok, text){
   $("dot").style.boxShadow = ok ? "0 0 0 6px rgba(20,184,166,.14)" : "0 0 0 6px rgba(236,72,153,.12)";
 }
 
-/* ======= 3) normalização de cabeçalhos DataSUS ======= */
 function normKey(s){
   return String(s||"")
     .toLowerCase()
@@ -295,6 +299,7 @@ function normKey(s){
     .replace(/[^a-z0-9]+/g,"")
     .trim();
 }
+
 function toNum(x){
   if (x===null || x===undefined) return 0;
   if (typeof x==="number") return Number.isFinite(x) ? x : 0;
@@ -302,62 +307,85 @@ function toNum(x){
   const n = Number(s);
   return Number.isFinite(n) ? n : 0;
 }
-function fmt(n){
-  return Math.round(toNum(n)).toLocaleString("pt-BR");
-}
 
-/* Converte cada linha pra um objeto com chaves normalizadas */
+function fmt(n){ return Math.round(toNum(n)).toLocaleString("pt-BR"); }
+
 function normalizeRows(rows){
-  if (!rows || !rows.length) return [];
   const out = [];
-  for (const r of rows){
+  for (const r of (rows||[])){
     const obj = {};
     for (const k of Object.keys(r)){
-      const nk = normKey(k);
-      obj[nk] = r[k];
+      obj[normKey(k)] = r[k];
     }
     out.push(obj);
   }
   return out;
 }
 
-function destroyChart(ch){
-  if (ch){ try{ ch.destroy(); } catch(e){} }
-}
+function destroyChart(ch){ if (ch){ try{ ch.destroy(); } catch(e){} } }
 
-function makeLineChart(ctx, labels, datasets, title){
-  return new Chart(ctx, {
-    type: "line",
-    data: { labels, datasets },
-    options: {
+function makeLineChart(canvas, labels, datasets, title){
+  return new Chart(canvas, {
+    type:"line",
+    data:{ labels, datasets },
+    options:{
       responsive:true,
       maintainAspectRatio:false,
-      interaction: { mode:"index", intersect:false },
-      plugins: {
-        legend: { display:true, labels:{ boxWidth:10, usePointStyle:true } },
-        title: { display: !!title, text: title }
+      interaction:{ mode:"index", intersect:false },
+      plugins:{
+        legend:{ display:true, labels:{ boxWidth:10, usePointStyle:true } },
+        title:{ display:!!title, text:title }
       },
-      scales:{ y: { beginAtZero:true, ticks:{ callback:(v)=> fmt(v) } } },
-      elements:{
-        line: { tension:0.25, borderWidth:2 },
-        point:{ radius:2, hoverRadius:5 }
-      }
+      scales:{ y:{ beginAtZero:true, ticks:{ callback:(v)=>fmt(v) } } },
+      elements:{ line:{ tension:0.25, borderWidth:2 }, point:{ radius:2, hoverRadius:5 } }
     }
   });
 }
-function makeBarChart(ctx, labels, label, values, title){
-  return new Chart(ctx, {
+
+function makeBarChart(canvas, labels, label, values, title){
+  return new Chart(canvas, {
     type:"bar",
     data:{ labels, datasets:[{ label, data: values, borderWidth:1 }] },
     options:{
-      responsive:true, maintainAspectRatio:false,
+      responsive:true,
+      maintainAspectRatio:false,
       plugins:{ legend:{display:false}, title:{display:!!title, text:title} },
-      scales:{ y:{ beginAtZero:true, ticks:{ callback:(v)=> fmt(v) } } }
+      scales:{ y:{ beginAtZero:true, ticks:{ callback:(v)=>fmt(v) } } }
     }
   });
 }
 
-/* ======= 4) Carregamento leve (lazy) ======= */
+function peak(series){
+  if (!series.length) return {x:"—", y:0};
+  return series.reduce((a,b)=> (toNum(b.y) > toNum(a.y)) ? b : a);
+}
+
+function trend(series){
+  if (series.length < 6) return {label:"—", sub:"Poucos anos"};
+  const last3 = series.slice(-3).map(p=>toNum(p.y));
+  const prev3 = series.slice(-6,-3).map(p=>toNum(p.y));
+  const m1 = last3.reduce((s,n)=>s+n,0)/3;
+  const m0 = prev3.reduce((s,n)=>s+n,0)/3;
+  if (m0 === 0) return {label:"—", sub:"Base anterior zerada"};
+  const p = ((m1-m0)/m0)*100;
+  const dir = p>=0 ? "▲" : "▼";
+  return {label:`${dir} ${Math.abs(p).toFixed(1)}%`, sub:"Média 3 anos vs 3 anteriores"};
+}
+
+function escapeHtml(s){
+  return String(s).replace(/[&<>"']/g, m => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;" }[m]));
+}
+
+function addQA(q,a){
+  const div = document.createElement("div");
+  div.className = "cardQ";
+  div.innerHTML = `<div class="q">❓ ${escapeHtml(q)}</div><div class="a">${escapeHtml(a)}</div>`;
+  $("qaCards").appendChild(div);
+}
+
+/* =========================
+   3) carrega CSV (worker)
+   ========================= */
 function parseCSV(url){
   return new Promise((resolve,reject)=>{
     Papa.parse(url, {
@@ -365,14 +393,9 @@ function parseCSV(url){
       header:true,
       skipEmptyLines:true,
       delimiter:";",
-      worker:true,            // NÃO trava a UI
-      complete:(res)=>{
-        if (res.errors && res.errors.length){
-          console.warn("CSV parse warnings:", url, res.errors.slice(0,3));
-        }
-        resolve(normalizeRows(res.data));
-      },
-      error:(err)=>reject(err)
+      worker:true,
+      complete:(res)=> resolve(normalizeRows(res.data)),
+      error:(err)=> reject(err)
     });
   });
 }
@@ -380,14 +403,481 @@ function parseCSV(url){
 async function getData(key){
   if (state.cache[key]) return state.cache[key];
   setStatus(false, `Carregando: ${key}…`);
-  const url = DATA_URLS[key];
-  const rows = await parseCSV(url);
+  const rows = await parseCSV(DATA_URLS[key]);
   state.cache[key] = rows;
   setStatus(true, `OK: ${key} (${rows.length.toLocaleString("pt-BR")} linhas)`);
   return rows;
 }
 
-/* ======= 5) UI ======= */
+/* =========================
+   4) Controles por aba
+   ========================= */
+function clearControls(){ $("controlsRow").innerHTML = ""; }
+function addField(html){
+  const div = document.createElement("div");
+  div.className = "field";
+  div.innerHTML = html;
+  $("controlsRow").appendChild(div);
+}
+
+async function buildControls(){
+  clearControls();
+  const v = state.view;
+
+  if (v==="brasil"){
+    const brasil = await getData("brasil");
+    const years = brasil.map(r=>String(r.ano||"").trim()).filter(Boolean);
+
+    addField(`<label>Modo</label>
+      <select id="selBrasilModo">
+        <option value="anual">Total por ano</option>
+        <option value="mensal">Mensal (escolha o ano)</option>
+      </select>`);
+
+    addField(`<label>Ano (modo mensal)</label>
+      <select id="selAnoBrasil">${years.map(y=>`<option>${escapeHtml(y)}</option>`).join("")}</select>`);
+
+    return;
+  }
+
+  if (v==="estados"){
+    const est = await getData("estados");
+    const estados = est.map(r=>String(r.estado||"").trim()).filter(Boolean);
+    const years = Object.keys(est[0]||{}).filter(k=>/^\d{4}$/.test(k)).sort();
+
+    addField(`<label>Estado</label>
+      <select id="selEstado">${estados.map(s=>`<option>${escapeHtml(s)}</option>`).join("")}</select>`);
+
+    addField(`<label>Ano (ranking)</label>
+      <select id="selAnoRank">${years.map(y=>`<option>${y}</option>`).join("")}</select>`);
+
+    addField(`<label>Top (ranking)</label>
+      <select id="selTop">
+        <option value="10">Top 10</option>
+        <option value="20">Top 20</option>
+        <option value="27">Top 27</option>
+      </select>`);
+
+    return;
+  }
+
+  if (v==="municipios"){
+    addField(`<label>Digite o município (Regional de Cáceres)</label>
+      <input id="inpMun" placeholder="Ex: Cáceres / Mirassol D’Oeste / Rio Branco…" />`);
+
+    addField(`<label>&nbsp;</label>
+      <button class="btn" id="btnBuscarMun">🔎 Buscar</button>`);
+
+    $("btnBuscarMun").addEventListener("click", async ()=>{
+      const raw = ($("inpMun").value||"").trim();
+      if (!raw) return alert("Digite um município.");
+      state.selection.municipio = raw;
+      await render();
+    });
+
+    return;
+  }
+
+  if (v==="sexo"){
+    const sexo = await getData("sexo");
+    const years = sexo.map(r=>String(r.anonotificao||r.anonotificacao||"").trim()).filter(Boolean);
+
+    addField(`<label>Modo</label>
+      <select id="selSexoModo">
+        <option value="evolucao">Evolução anual</option>
+        <option value="barras">Comparação (ano)</option>
+      </select>`);
+
+    addField(`<label>Ano (para barras)</label>
+      <select id="selSexoAno">${years.map(y=>`<option>${escapeHtml(y)}</option>`).join("")}</select>`);
+
+    return;
+  }
+
+  if (v==="raca"){
+    const raca = await getData("raca");
+    const years = raca.map(r=>String(r.anonotificao||r.anonotificacao||"").trim()).filter(Boolean);
+
+    addField(`<label>Modo</label>
+      <select id="selRacaModo">
+        <option value="evolucao">Evolução anual</option>
+        <option value="barras">Comparação (ano)</option>
+      </select>`);
+
+    addField(`<label>Ano (para barras)</label>
+      <select id="selRacaAno">${years.map(y=>`<option>${escapeHtml(y)}</option>`).join("")}</select>`);
+
+    return;
+  }
+
+  if (v==="faixa"){
+    const fx = await getData("faixa");
+    const labels = fx.map(r=>String(r.faixaetria||r.faixaetaria||"").trim()).filter(Boolean);
+
+    addField(`<label>Faixa etária</label>
+      <select id="selFaixa">${labels.map(x=>`<option>${escapeHtml(x)}</option>`).join("")}</select>`);
+
+    return;
+  }
+
+  if (v==="escolaridade"){
+    const esc = await getData("escolaridade");
+    const years = esc.map(r=>String(r.anonotificao||r.anonotificacao||"").trim()).filter(Boolean);
+
+    addField(`<label>Modo</label>
+      <select id="selEscModo">
+        <option value="evolucao">Evolução anual</option>
+        <option value="barras">Comparação (ano)</option>
+      </select>`);
+
+    addField(`<label>Ano (para barras)</label>
+      <select id="selEscAno">${years.map(y=>`<option>${escapeHtml(y)}</option>`).join("")}</select>`);
+
+    return;
+  }
+}
+
+/* =========================
+   5) Render
+   ========================= */
+async function render(){
+  destroyChart(state.charts.main);
+  destroyChart(state.charts.alt);
+
+  $("qaCards").innerHTML = "";
+  $("metaTxt").textContent = "—";
+
+  const v = state.view;
+  const cMain = $("chartMain");
+  const cAlt  = $("chartAlt");
+
+  // KPIs default
+  $("kpiSel").textContent = "—";
+  $("kpiSelSub").textContent = "—";
+  $("kpiPeak").textContent = "—";
+  $("kpiPeakSub").textContent = "—";
+  $("kpiTrend").textContent = "—";
+  $("kpiTrendSub").textContent = "—";
+
+  if (v==="brasil"){
+    const brasil = await getData("brasil");
+    $("rightTitle").textContent = "Brasil — dengue";
+
+    const modo = $("selBrasilModo")?.value || "anual";
+    if (modo==="anual"){
+      const series = brasil
+        .map(r=>({x:String(r.ano||"").trim(), y:toNum(r.total)}))
+        .filter(p=>p.x);
+
+      state.charts.main = makeLineChart(
+        cMain,
+        series.map(p=>p.x),
+        [{ label:"Brasil (Total)", data:series.map(p=>p.y) }],
+        "Evolução anual"
+      );
+
+      const last = series.slice(-8);
+      state.charts.alt = makeBarChart(
+        cAlt,
+        last.map(p=>p.x),
+        "Total",
+        last.map(p=>p.y),
+        "Últimos anos"
+      );
+
+      const pk = peak(series);
+      const tr = trend(series);
+
+      $("kpiSel").textContent = "Brasil (Total)";
+      $("kpiSelSub").textContent = `${series[0]?.x || "—"} → ${series.at(-1)?.x || "—"}`;
+      $("kpiPeak").textContent = pk.x;
+      $("kpiPeakSub").textContent = `${fmt(pk.y)} casos`;
+      $("kpiTrend").textContent = tr.label;
+      $("kpiTrendSub").textContent = tr.sub;
+
+      addQA("Qual foi o pior ano no Brasil?", `Pico em ${pk.x} com ${fmt(pk.y)} casos.`);
+      addQA("A dengue subiu recentemente?", `Tendência: ${tr.label}. ${tr.sub}.`);
+      $("metaTxt").textContent = "Carrega só o Brasil primeiro (rápido).";
+    } else {
+      const ano = $("selAnoBrasil")?.value || String(brasil.at(-1)?.ano||"");
+      const row = brasil.find(r=>String(r.ano).trim()===String(ano));
+      const series = MONTHS.map(m=>({x:m, y: toNum(row?.[normKey(m)]) || toNum(row?.[m]) }));
+
+      state.charts.main = makeLineChart(
+        cMain,
+        series.map(p=>p.x),
+        [{ label:`Brasil (Mensal ${ano})`, data: series.map(p=>p.y) }],
+        `Sazonalidade — ${ano}`
+      );
+      state.charts.alt = makeBarChart(
+        cAlt,
+        series.map(p=>p.x),
+        `Mensal ${ano}`,
+        series.map(p=>p.y),
+        "Distribuição mensal"
+      );
+
+      const pk = peak(series);
+      $("kpiSel").textContent = `Brasil (Mensal ${ano})`;
+      $("kpiSelSub").textContent = "Sazonalidade";
+      $("kpiPeak").textContent = pk.x;
+      $("kpiPeakSub").textContent = `${fmt(pk.y)} casos`;
+      addQA(`Qual mês foi o pico em ${ano}?`, `Pico em ${pk.x} com ${fmt(pk.y)} casos.`);
+      $("metaTxt").textContent = "Mensal por ano (leve).";
+    }
+
+    return;
+  }
+
+  if (v==="estados"){
+    const est = await getData("estados");
+    const uf = $("selEstado")?.value || String(est[0]?.estado||"");
+    $("rightTitle").textContent = `Estado — ${uf}`;
+
+    const row = est.find(r=>String(r.estado||"").trim().toLowerCase()===uf.trim().toLowerCase()) || est[0];
+    const years = Object.keys(row||{}).filter(k=>/^\d{4}$/.test(k)).sort();
+    const series = years.map(y=>({x:y, y:toNum(row?.[y])}));
+
+    state.charts.main = makeLineChart(
+      cMain,
+      series.map(p=>p.x),
+      [{ label:uf, data:series.map(p=>p.y) }],
+      "Evolução anual (Estado)"
+    );
+
+    const anoRank = $("selAnoRank")?.value || years.at(-1);
+    const topN = parseInt($("selTop")?.value||"10",10);
+
+    const top = est
+      .map(r=>({k:String(r.estado||"").trim(), v:toNum(r[anoRank])}))
+      .filter(x=>x.k)
+      .sort((a,b)=>b.v-a.v)
+      .slice(0, topN);
+
+    state.charts.alt = makeBarChart(
+      cAlt,
+      top.map(x=>x.k),
+      `Total (${anoRank})`,
+      top.map(x=>x.v),
+      `Ranking — Top ${topN}`
+    );
+
+    const pk = peak(series);
+    const tr = trend(series);
+
+    $("kpiSel").textContent = `Estado: ${uf}`;
+    $("kpiSelSub").textContent = `${years[0]} → ${years.at(-1)}`;
+    $("kpiPeak").textContent = pk.x;
+    $("kpiPeakSub").textContent = `${fmt(pk.y)} casos`;
+    $("kpiTrend").textContent = tr.label;
+    $("kpiTrendSub").textContent = tr.sub;
+
+    addQA("Esse estado subiu recentemente?", `Tendência: ${tr.label}. ${tr.sub}.`);
+    addQA("Pior ano do estado", `Pico em ${pk.x} com ${fmt(pk.y)} casos.`);
+    $("metaTxt").textContent = "Carrega só o CSV de estados nessa aba.";
+    return;
+  }
+
+  if (v==="municipios"){
+    const mun = await getData("municipios");
+    $("rightTitle").textContent = "Municípios — Regional de Cáceres";
+
+    const query = (state.selection.municipio || "").trim();
+    if (!query){
+      $("metaTxt").textContent = "Digite um município e clique Buscar.";
+      addQA("Como usar?", "Digite e clique Buscar. Só 12 municípios (leve).");
+      return;
+    }
+
+    // no seu DataSUS costuma vir como "municpio"
+    const key = "municpio";
+    const qn = normKey(query);
+
+    const row =
+      mun.find(r=> normKey(r[key]||"") === qn) ||
+      mun.find(r=> normKey(r[key]||"").includes(qn)) ||
+      mun.find(r=> normKey(r[key]||"").startsWith(qn));
+
+    if (!row){
+      $("metaTxt").textContent = `Não encontrei "${query}" na Regional de Cáceres.`;
+      addQA("Dica", "Tente sem acento (ex: 'caceres', 'mirassol', 'rio branco').");
+      return;
+    }
+
+    const name = String(row[key]||query).trim();
+    const years = Object.keys(row).filter(k=>/^\d{4}$/.test(k)).sort();
+    const series = years.map(y=>({x:y, y:toNum(row[y])}));
+
+    state.charts.main = makeLineChart(
+      cMain,
+      series.map(p=>p.x),
+      [{ label:name, data:series.map(p=>p.y) }],
+      "Evolução anual (Município)"
+    );
+
+    const last = series.slice(-10);
+    state.charts.alt = makeBarChart(
+      cAlt,
+      last.map(p=>p.x),
+      "Total",
+      last.map(p=>p.y),
+      "Últimos 10 anos"
+    );
+
+    const pk = peak(series);
+    const tr = trend(series);
+
+    $("kpiSel").textContent = name;
+    $("kpiSelSub").textContent = `${years[0]} → ${years.at(-1)}`;
+    $("kpiPeak").textContent = pk.x;
+    $("kpiPeakSub").textContent = `${fmt(pk.y)} casos`;
+    $("kpiTrend").textContent = tr.label;
+    $("kpiTrendSub").textContent = tr.sub;
+
+    addQA("O município piorou recentemente?", `Tendência: ${tr.label}. ${tr.sub}.`);
+    addQA("Pior ano do município", `Pico em ${pk.x} com ${fmt(pk.y)} casos.`);
+    $("metaTxt").textContent = "Municípios leves (12 da regional).";
+    return;
+  }
+
+  if (v==="sexo"){
+    const sexo = await getData("sexo");
+    $("rightTitle").textContent = "Sexo — comparações";
+
+    const modo = $("selSexoModo")?.value || "evolucao";
+    const years = sexo.map(r=>String(r.anonotificao||r.anonotificacao||"").trim()).filter(Boolean);
+    const masc = sexo.map(r=>toNum(r.masculino));
+    const fem  = sexo.map(r=>toNum(r.feminino));
+    const ign  = sexo.map(r=>toNum(r.ignorado));
+
+    if (modo==="evolucao"){
+      state.charts.main = makeLineChart(
+        cMain,
+        years,
+        [
+          { label:"Masculino", data: masc },
+          { label:"Feminino",  data: fem  },
+          { label:"Ignorado",  data: ign  },
+        ],
+        "Evolução anual por sexo"
+      );
+      const i = years.length-1;
+      state.charts.alt = makeBarChart(
+        cAlt,
+        ["Masculino","Feminino","Ignorado"],
+        `Total (${years[i]})`,
+        [masc[i], fem[i], ign[i]],
+        "Último ano"
+      );
+    } else {
+      const ano = $("selSexoAno")?.value || years.at(-1);
+      const idx = years.indexOf(ano);
+      state.charts.main = makeBarChart(
+        cMain,
+        ["Masculino","Feminino","Ignorado"],
+        `Total (${ano})`,
+        [masc[idx], fem[idx], ign[idx]],
+        "Comparação por sexo"
+      );
+      const total = years.map((_,i)=>toNum(masc[i])+toNum(fem[i]));
+      state.charts.alt = makeLineChart(
+        cAlt,
+        years,
+        [{label:"Masculino+Feminino", data: total}],
+        "Evolução (M+F)"
+      );
+    }
+
+    addQA("Quem tem mais casos no último ano?", `Masculino: ${fmt(masc.at(-1))} • Feminino: ${fmt(fem.at(-1))}.`);
+    $("metaTxt").textContent = "Carrega só quando abre essa aba.";
+    return;
+  }
+
+  if (v==="raca"){
+    const raca = await getData("raca");
+    $("rightTitle").textContent = "Raça/Cor — comparações";
+
+    const modo = $("selRacaModo")?.value || "evolucao";
+    const years = raca.map(r=>String(r.anonotificao||r.anonotificacao||"").trim()).filter(Boolean);
+
+    const cols = ["branca","preta","amarela","parda","indigena"];
+    const values = Object.fromEntries(cols.map(c=>[c, raca.map(r=>toNum(r[c]))]));
+
+    if (modo==="evolucao"){
+      const ds = cols.map(c=>({ label:c, data: values[c] }));
+      state.charts.main = makeLineChart(cMain, years, ds, "Evolução anual por raça/cor");
+      const i = years.length-1;
+      state.charts.alt = makeBarChart(cAlt, cols, `Total (${years[i]})`, cols.map(c=>values[c][i]), "Último ano");
+    } else {
+      const ano = $("selRacaAno")?.value || years.at(-1);
+      const idx = years.indexOf(ano);
+      state.charts.main = makeBarChart(cMain, cols, `Total (${ano})`, cols.map(c=>values[c][idx]), "Comparação");
+      const total = years.map((_,i)=>cols.reduce((s,c)=>s+toNum(values[c][i]),0));
+      state.charts.alt = makeLineChart(cAlt, years, [{label:"Total (soma)", data: total}], "Total");
+    }
+
+    const i = years.length-1;
+    const arr = cols.map(c=>({c, v:values[c][i]})).sort((a,b)=>b.v-a.v);
+    addQA("Quem lidera no último ano?", `${arr[0].c} (${fmt(arr[0].v)})`);
+    $("metaTxt").textContent = "Carrega só quando abre essa aba.";
+    return;
+  }
+
+  if (v==="faixa"){
+    const fx = await getData("faixa");
+    $("rightTitle").textContent = "Faixa etária — total";
+
+    const labels = fx.map(r=>String(r.faixaetria||r.faixaetaria||"").trim()).filter(Boolean);
+    const vals = fx.map(r=>toNum(r.total));
+
+    const arr = labels.map((l,i)=>({l,v:vals[i]})).sort((a,b)=>b.v-a.v).slice(0,15);
+    state.charts.main = makeBarChart(cMain, arr.map(x=>x.l), "Total", arr.map(x=>x.v), "Top faixas (total)");
+    addQA("Importante", "Sem taxa por população, isso é distribuição de casos, não risco.");
+    $("metaTxt").textContent = "Carrega só quando abre essa aba.";
+    return;
+  }
+
+  if (v==="escolaridade"){
+    const esc = await getData("escolaridade");
+    $("rightTitle").textContent = "Escolaridade — comparações";
+
+    const modo = $("selEscModo")?.value || "evolucao";
+    const years = esc.map(r=>String(r.anonotificao||r.anonotificacao||"").trim()).filter(Boolean);
+    const keys = Object.keys(esc[0]||{}).filter(k=>!["anonotificao","anonotificacao","total"].includes(k));
+    const totals = keys.map(k=>({k, t: esc.reduce((s,r)=>s+toNum(r[k]),0)})).sort((a,b)=>b.t-a.t);
+
+    if (modo==="evolucao"){
+      const keep = totals.slice(0,6).map(x=>x.k);
+      const ds = keep.map(k=>({label:k, data: esc.map(r=>toNum(r[k]))}));
+      state.charts.main = makeLineChart(cMain, years, ds, "Top 6 escolaridades (evolução)");
+
+      const i = years.length-1;
+      const top8 = totals.slice(0,8).map(x=>x.k);
+      state.charts.alt = makeBarChart(cAlt, top8, `Total (${years[i]})`, top8.map(k=>toNum(esc[i][k])), "Último ano (Top 8)");
+    } else {
+      const ano = $("selEscAno")?.value || years.at(-1);
+      const idx = years.indexOf(ano);
+      const top12 = totals
+        .map(x=>({k:x.k, v: toNum(esc[idx][x.k])}))
+        .sort((a,b)=>b.v-a.v)
+        .slice(0,12);
+
+      state.charts.main = makeBarChart(cMain, top12.map(x=>x.k), `Total (${ano})`, top12.map(x=>x.v), "Comparação por escolaridade");
+
+      const top2 = top12.slice(0,2).map(x=>x.k);
+      const ds = top2.map(k=>({label:k, data: esc.map(r=>toNum(r[k]))}));
+      state.charts.alt = makeLineChart(cAlt, years, ds, "Evolução das 2 maiores");
+    }
+
+    addQA("Leitura", "Isso mostra concentração por escolaridade registrada. Para risco, precisa taxa por população.");
+    $("metaTxt").textContent = "Carrega só quando abre essa aba.";
+    return;
+  }
+}
+
+/* =========================
+   6) eventos
+   ========================= */
 document.querySelectorAll(".tab").forEach(t=>{
   t.addEventListener("click", async ()=>{
     document.querySelectorAll(".tab").forEach(x=>x.classList.toggle("active", x===t));
@@ -402,554 +892,27 @@ $("btnReload").addEventListener("click", async ()=>{
   await buildControls();
   await render();
 });
+
 $("btnApply").addEventListener("click", render);
 
 $("btnDownload").addEventListener("click", ()=>{
-  // export simples: só o gráfico principal atual (labels+values)
-  if (!state._lastExport) return alert("Nada para baixar ainda.");
-  const {name, rows} = state._lastExport;
-  const csv = rows.map(r=>r.join(",")).join("\n");
-  const blob = new Blob([csv], {type:"text/csv;charset=utf-8"});
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = name;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
+  alert("Export simples pode ser ligado depois. Primeiro vamos garantir tudo rodando.");
 });
 
-function clearControls(){ $("controlsRow").innerHTML = ""; }
-function addField(html){
-  const div = document.createElement("div");
-  div.className = "field";
-  div.innerHTML = html;
-  $("controlsRow").appendChild(div);
-}
-
-/* ======= 6) Controles por aba ======= */
-async function buildControls(){
-  clearControls();
-  const v = state.view;
-
-  if (v==="brasil"){
-    addField(`
-      <label>Modo</label>
-      <select id="selBrasilModo">
-        <option value="anual">Total por ano</option>
-        <option value="mensal">Mensal (escolha o ano)</option>
-      </select>
-    `);
-    const brasil = await getData("brasil");
-    const years = brasil.map(r=>String(r.ano||"").trim()).filter(Boolean);
-    addField(`
-      <label>Ano (modo mensal)</label>
-      <select id="selAnoBrasil">${years.map(y=>`<option>${y}</option>`).join("")}</select>
-    `);
-    return;
-  }
-
-  if (v==="estados"){
-    const est = await getData("estados");
-    // chave do estado pode vir como "estado"
-    const estados = est.map(r=>String(r.estado||"").trim()).filter(Boolean);
-    addField(`
-      <label>Estado</label>
-      <select id="selEstado">${estados.map(s=>`<option>${escapeHtml(s)}</option>`).join("")}</select>
-    `);
-    // anos = colunas 4 dígitos existentes
-    const years = Object.keys(est[0]||{}).filter(k=>/^\d{4}$/.test(k)).sort();
-    addField(`
-      <label>Ano (ranking)</label>
-      <select id="selAnoRank">${years.map(y=>`<option>${y}</option>`).join("")}</select>
-    `);
-    addField(`
-      <label>Top (ranking)</label>
-      <select id="selTop">
-        <option value="10">Top 10</option>
-        <option value="20">Top 20</option>
-        <option value="27">Top 27</option>
-      </select>
-    `);
-    return;
-  }
-
-  if (v==="municipios"){
-    addField(`
-      <label>Digite o município (sem lista gigante)</label>
-      <input id="inpMun" placeholder="Ex: Cáceres / Cuiabá / Corumbá…" />
-    `);
-    addField(`
-      <label>&nbsp;</label>
-      <button class="btn" id="btnBuscarMun">🔎 Buscar</button>
-    `);
-    $("btnBuscarMun").addEventListener("click", async ()=>{
-      const raw = ($("inpMun").value||"").trim();
-      if (!raw) return alert("Digite um município.");
-      state.selection.municipio = raw;
-      await render();
-    });
-    return;
-  }
-
-  if (v==="sexo"){
-    addField(`
-      <label>Modo</label>
-      <select id="selSexoModo">
-        <option value="evolucao">Evolução anual</option>
-        <option value="barras">Comparação (ano)</option>
-      </select>
-    `);
-    const sexo = await getData("sexo");
-    const years = sexo.map(r=>String(r.anonotificao||r.anonotificacao||"").trim()).filter(Boolean);
-    addField(`
-      <label>Ano (para barras)</label>
-      <select id="selSexoAno">${years.map(y=>`<option>${y}</option>`).join("")}</select>
-    `);
-    return;
-  }
-
-  if (v==="raca"){
-    addField(`
-      <label>Modo</label>
-      <select id="selRacaModo">
-        <option value="evolucao">Evolução anual</option>
-        <option value="barras">Comparação (ano)</option>
-      </select>
-    `);
-    const raca = await getData("raca");
-    const years = raca.map(r=>String(r.anonotificao||r.anonotificacao||"").trim()).filter(Boolean);
-    addField(`
-      <label>Ano (para barras)</label>
-      <select id="selRacaAno">${years.map(y=>`<option>${y}</option>`).join("")}</select>
-    `);
-    return;
-  }
-
-  if (v==="faixa"){
-    addField(`
-      <label>Modo</label>
-      <select id="selFaixaModo">
-        <option value="total">Total por faixa</option>
-        <option value="mensal">Mensal (faixa)</option>
-      </select>
-    `);
-    const brasil = await getData("brasil");
-    const years = brasil.map(r=>String(r.ano||"").trim()).filter(Boolean);
-    addField(`
-      <label>Ano (mensal)</label>
-      <select id="selFaixaAno">${years.map(y=>`<option>${y}</option>`).join("")}</select>
-    `);
-    const fx = await getData("faixa");
-    const labels = fx.map(r=>String(r.faixaetria||r.faixaetaria||"").trim()).filter(Boolean);
-    addField(`
-      <label>Faixa etária</label>
-      <select id="selFaixa">${labels.map(x=>`<option>${escapeHtml(x)}</option>`).join("")}</select>
-    `);
-    return;
-  }
-
-  if (v==="escolaridade"){
-    addField(`
-      <label>Modo</label>
-      <select id="selEscModo">
-        <option value="evolucao">Evolução anual</option>
-        <option value="barras">Comparação (ano)</option>
-      </select>
-    `);
-    const esc = await getData("escolaridade");
-    const years = esc.map(r=>String(r.anonotificao||r.anonotificacao||"").trim()).filter(Boolean);
-    addField(`
-      <label>Ano (para barras)</label>
-      <select id="selEscAno">${years.map(y=>`<option>${y}</option>`).join("")}</select>
-    `);
-    return;
-  }
-}
-
-function escapeHtml(s){
-  return String(s).replace(/[&<>"']/g, m => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;" }[m]));
-}
-
-/* ======= 7) séries ======= */
-function peak(series){
-  if (!series.length) return {x:"—", y:0};
-  return series.reduce((a,b)=> toNum(b.y) > toNum(a.y) ? b : a);
-}
-function trend(series){
-  if (series.length < 6) return {label:"—", sub:"Poucos anos"};
-  const last3 = series.slice(-3).map(p=>toNum(p.y));
-  const prev3 = series.slice(-6,-3).map(p=>toNum(p.y));
-  const m1 = last3.reduce((s,n)=>s+n,0)/3;
-  const m0 = prev3.reduce((s,n)=>s+n,0)/3;
-  if (m0 === 0) return {label:"—", sub:"Base anterior zerada"};
-  const p = ((m1-m0)/m0)*100;
-  const dir = p>=0 ? "▲" : "▼";
-  return {label:`${dir} ${Math.abs(p).toFixed(1)}%`, sub:"Média 3 anos vs 3 anteriores"};
-}
-
-/* ======= 8) render ======= */
-async function render(){
-  const v = state.view;
-
-  destroyChart(state.charts.main);
-  destroyChart(state.charts.alt);
-
-  const ctxMain = $("chartMain");
-  const ctxAlt = $("chartAlt");
-  ctxMain.height = 120;
-  ctxAlt.height = 105;
-
-  $("metaTxt").textContent = "—";
-  $("qaCards").innerHTML = "";
-
-  if (v==="brasil"){
-    const brasil = await getData("brasil");
-    $("rightTitle").textContent = "Brasil — dengue";
-
-    const modo = $("selBrasilModo")?.value || "anual";
-    if (modo==="anual"){
-      const series = brasil
-        .map(r=>({x:String(r.ano||"").trim(), y:toNum(r.total)}))
-        .filter(p=>p.x);
-
-      state.charts.main = makeLineChart(ctxMain, series.map(p=>p.x), [{
-        label:"Brasil (Total)",
-        data: series.map(p=>p.y),
-        borderColor:"rgba(236,72,153,.9)",
-        backgroundColor:"rgba(236,72,153,.18)"
-      }], "Evolução anual");
-
-      const last = series.slice(-8);
-      state.charts.alt = makeBarChart(ctxAlt, last.map(p=>p.x), "Total", last.map(p=>p.y), "Últimos anos");
-
-      const pk = peak(series);
-      const tr = trend(series);
-
-      $("kpiSel").textContent = "Brasil (Total)";
-      $("kpiSelSub").textContent = `${series[0]?.x || "—"} → ${series.at(-1)?.x || "—"}`;
-      $("kpiPeak").textContent = pk.x;
-      $("kpiPeakSub").textContent = `${fmt(pk.y)} casos`;
-      $("kpiTrend").textContent = tr.label;
-      $("kpiTrendSub").textContent = tr.sub;
-
-      $("metaTxt").textContent = "Carrega rápido: só Brasil no início.";
-
-      state._lastExport = {name:"brasil_anual.csv", rows:[["ano","total"], ...series.map(p=>[p.x, Math.round(p.y)])]};
-
-      addQA(`Qual foi o pior ano no Brasil?`, `Pico em ${pk.x} com ${fmt(pk.y)} casos.`);
-      addQA(`A dengue subiu recentemente?`, `Tendência recente: ${tr.label}. ${tr.sub}.`);
-    } else {
-      const ano = $("selAnoBrasil")?.value || String(brasil.at(-1)?.ano||"");
-      const row = brasil.find(r=>String(r.ano).trim()===String(ano));
-      const series = MONTHS.map(m=>({x:m, y: toNum(row?.[normKey(m)]) || toNum(row?.[m]) }));
-
-      state.charts.main = makeLineChart(ctxMain, series.map(p=>p.x), [{
-        label:`Brasil (Mensal ${ano})`,
-        data: series.map(p=>p.y),
-        borderColor:"rgba(168,85,247,.9)",
-        backgroundColor:"rgba(168,85,247,.16)"
-      }], `Sazonalidade — ${ano}`);
-
-      state.charts.alt = makeBarChart(ctxAlt, series.map(p=>p.x), `Mensal ${ano}`, series.map(p=>p.y), "Distribuição mensal");
-
-      const pk = peak(series);
-      $("kpiSel").textContent = `Brasil (Mensal ${ano})`;
-      $("kpiSelSub").textContent = "Sazonalidade";
-      $("kpiPeak").textContent = pk.x;
-      $("kpiPeakSub").textContent = `${fmt(pk.y)} casos`;
-      $("kpiTrend").textContent = "—";
-      $("kpiTrendSub").textContent = "Tendência é melhor na visão anual";
-
-      $("metaTxt").textContent = "Mensal por ano (leve).";
-
-      state._lastExport = {name:`brasil_mensal_${ano}.csv`, rows:[["mes","valor"], ...series.map(p=>[p.x, Math.round(p.y)])]};
-
-      addQA(`Qual mês foi o pico em ${ano}?`, `Pico em ${pk.x} com ${fmt(pk.y)} casos.`);
-    }
-    return;
-  }
-
-  if (v==="estados"){
-    const est = await getData("estados");
-    const uf = $("selEstado")?.value || String(est[0]?.estado||"");
-    $("rightTitle").textContent = `Estado — ${uf}`;
-
-    const row = est.find(r=>String(r.estado||"").trim().toLowerCase()===uf.trim().toLowerCase());
-    const years = Object.keys(row||{}).filter(k=>/^\d{4}$/.test(k)).sort();
-    const series = years.map(y=>({x:y, y: toNum(row?.[y])}));
-
-    state.charts.main = makeLineChart(ctxMain:ctxMain, labels=series.map(p=>p.x), datasets=[{
-      label: uf,
-      data: series.map(p=>p.y),
-      borderColor:"rgba(236,72,153,.9)",
-      backgroundColor:"rgba(236,72,153,.18)"
-    }], title="Evolução anual (Estado)");
-
-    const anoRank = $("selAnoRank")?.value || years.at(-1);
-    const topN = parseInt($("selTop")?.value||"10",10);
-    const top = est
-      .map(r=>({k:String(r.estado||"").trim(), v:toNum(r[anoRank])}))
-      .filter(x=>x.k)
-      .sort((a,b)=>b.v-a.v)
-      .slice(0, topN);
-
-    state.charts.alt = makeBarChart(ctxAlt, top.map(x=>x.k), `Total (${anoRank})`, top.map(x=>x.v), `Ranking — Top ${topN}`);
-
-    const pk = peak(series);
-    const tr = trend(series);
-    $("kpiSel").textContent = `Estado: ${uf}`;
-    $("kpiSelSub").textContent = `${years[0]} → ${years.at(-1)}`;
-    $("kpiPeak").textContent = pk.x;
-    $("kpiPeakSub").textContent = `${fmt(pk.y)} casos`;
-    $("kpiTrend").textContent = tr.label;
-    $("kpiTrendSub").textContent = tr.sub;
-
-    $("metaTxt").textContent = "Carrega só o CSV de estados quando você entra nessa aba.";
-
-    state._lastExport = {name:`estado_${uf}.csv`.replace(/\s+/g,"_"), rows:[["ano","total"], ...series.map(p=>[p.x, Math.round(p.y)])]};
-
-    addQA(`Esse estado subiu recentemente?`, `Tendência: ${tr.label}. ${tr.sub}.`);
-    addQA(`Pior ano do estado`, `Pico em ${pk.x} com ${fmt(pk.y)} casos.`);
-    return;
-  }
-
-  if (v==="municipios"){
-    const munRows = await getData("municipios");
-    const query = (state.selection.municipio || "").trim();
-    $("rightTitle").textContent = "Municípios — busca";
-
-    if (!query){
-      $("metaTxt").textContent = "Digite um município e clique Buscar.";
-      $("kpiSel").textContent = "—";
-      $("kpiSelSub").textContent = "—";
-      $("kpiPeak").textContent = "—";
-      $("kpiPeakSub").textContent = "—";
-      $("kpiTrend").textContent = "—";
-      $("kpiTrendSub").textContent = "—";
-      addQA("Como usar municípios?", "Digite (ex: Cáceres) e clique Buscar. Assim fica leve.");
-      return;
-    }
-
-    // coluna do município no seu CSV está como "municpio" (DataSUS)
-    const key = "municpio";
-    const qn = normKey(query);
-    const row = munRows.find(r=> normKey(r[key]||"") === qn)
-             || munRows.find(r=> normKey(r[key]||"").includes(qn))
-             || munRows.find(r=> normKey(r[key]||"").startsWith(qn));
-
-    if (!row){
-      $("metaTxt").textContent = `Não encontrei "${query}". Tente sem acento/abreviação.`;
-      addQA("Dica", "Tente só uma parte: 'caceres', 'cuiaba', 'corumba'…");
-      return;
-    }
-
-    const years = Object.keys(row).filter(k=>/^\d{4}$/.test(k)).sort();
-    const series = years.map(y=>({x:y, y: toNum(row[y])}));
-    const munName = String(row[key]||query).trim();
-    $("rightTitle").textContent = `Município — ${munName}`;
-
-    state.charts.main = makeLineChart(ctxMain, series.map(p=>p.x), [{
-      label: munName,
-      data: series.map(p=>p.y),
-      borderColor:"rgba(168,85,247,.9)",
-      backgroundColor:"rgba(168,85,247,.16)"
-    }], "Evolução anual (Município)");
-
-    const last = series.slice(-10);
-    state.charts.alt = makeBarChart(ctxAlt, last.map(p=>p.x), "Total", last.map(p=>p.y), "Últimos 10 anos");
-
-    const pk = peak(series);
-    const tr = trend(series);
-    $("kpiSel").textContent = munName;
-    $("kpiSelSub").textContent = `${years[0]} → ${years.at(-1)}`;
-    $("kpiPeak").textContent = pk.x;
-    $("kpiPeakSub").textContent = `${fmt(pk.y)} casos`;
-    $("kpiTrend").textContent = tr.label;
-    $("kpiTrendSub").textContent = tr.sub;
-
-    $("metaTxt").textContent = "Leve: sem dropdown gigante (busca direta).";
-
-    state._lastExport = {name:`municipio_${munName}.csv`.replace(/\s+/g,"_"), rows:[["ano","total"], ...series.map(p=>[p.x, Math.round(p.y)])]};
-
-    addQA("Município piorou recentemente?", `Tendência: ${tr.label}. ${tr.sub}.`);
-    addQA("Pior ano do município", `Pico em ${pk.x} com ${fmt(pk.y)} casos.`);
-    return;
-  }
-
-  if (v==="sexo"){
-    const sexo = await getData("sexo");
-    $("rightTitle").textContent = "Sexo — comparações";
-    const modo = $("selSexoModo")?.value || "evolucao";
-
-    const years = sexo.map(r=>String(r.anonotificao||r.anonotificacao||"").trim()).filter(Boolean);
-    const masc = sexo.map(r=>toNum(r.masculino));
-    const fem  = sexo.map(r=>toNum(r.feminino));
-    const ign  = sexo.map(r=>toNum(r.ignorado));
-
-    if (modo==="evolucao"){
-      state.charts.main = makeLineChart(ctxMain, years, [
-        { label:"Masculino", data: masc, borderColor:"rgba(236,72,153,.9)", backgroundColor:"rgba(236,72,153,.10)" },
-        { label:"Feminino",  data: fem,  borderColor:"rgba(99,102,241,.9)", backgroundColor:"rgba(99,102,241,.10)" },
-        { label:"Ignorado",  data: ign,  borderColor:"rgba(20,184,166,.9)", backgroundColor:"rgba(20,184,166,.10)" }
-      ], "Evolução anual por sexo");
-
-      const i = years.length-1;
-      state.charts.alt = makeBarChart(ctxAlt, ["Masculino","Feminino","Ignorado"], `Total (${years[i]})`, [masc[i], fem[i], ign[i]], "Último ano");
-    } else {
-      const ano = $("selSexoAno")?.value || years.at(-1);
-      const idx = years.indexOf(ano);
-      state.charts.main = makeBarChart(ctxMain, ["Masculino","Feminino","Ignorado"], `Total (${ano})`, [masc[idx], fem[idx], ign[idx]], "Comparação por sexo");
-      const total = years.map((_,i)=>toNum(masc[i])+toNum(fem[i]));
-      state.charts.alt = makeLineChart(ctxAlt, years, [{label:"Masculino+Feminino", data: total, borderColor:"rgba(168,85,247,.9)", backgroundColor:"rgba(168,85,247,.10)"}], "Evolução (M+F)");
-    }
-
-    $("metaTxt").textContent = "Carrega só quando abre a aba.";
-    addQA("Quem tem mais casos no último ano?", `Masculino: ${fmt(masc.at(-1))} • Feminino: ${fmt(fem.at(-1))}.`);
-    return;
-  }
-
-  if (v==="raca"){
-    const raca = await getData("raca");
-    $("rightTitle").textContent = "Raça/Cor — comparações";
-    const modo = $("selRacaModo")?.value || "evolucao";
-    const years = raca.map(r=>String(r.anonotificao||r.anonotificacao||"").trim()).filter(Boolean);
-
-    const cols = ["branca","preta","amarela","parda","indigena"];
-    const values = Object.fromEntries(cols.map(c=>[c, raca.map(r=>toNum(r[c]))]));
-
-    if (modo==="evolucao"){
-      const palette = ["rgba(236,72,153,.9)","rgba(168,85,247,.9)","rgba(99,102,241,.9)","rgba(20,184,166,.9)","rgba(251,113,133,.9)"];
-      const ds = cols.map((c,i)=>({
-        label: c[0].toUpperCase()+c.slice(1),
-        data: values[c],
-        borderColor: palette[i%palette.length],
-        backgroundColor: palette[i%palette.length].replace(".9",".10")
-      }));
-      state.charts.main = makeLineChart(ctxMain, years, ds, "Evolução anual por raça/cor");
-
-      const i = years.length-1;
-      state.charts.alt = makeBarChart(ctxAlt, ds.map(d=>d.label), `Total (${years[i]})`, cols.map(c=>values[c][i]), "Último ano");
-    } else {
-      const ano = $("selRacaAno")?.value || years.at(-1);
-      const idx = years.indexOf(ano);
-      state.charts.main = makeBarChart(ctxMain, cols.map(c=>c[0].toUpperCase()+c.slice(1)), `Total (${ano})`, cols.map(c=>values[c][idx]), "Comparação");
-      const total = years.map((_,i)=>cols.reduce((s,c)=>s+toNum(values[c][i]),0));
-      state.charts.alt = makeLineChart(ctxAlt, years, [{label:"Total (soma)", data: total, borderColor:"rgba(236,72,153,.9)", backgroundColor:"rgba(236,72,153,.10)"}], "Total");
-    }
-
-    $("metaTxt").textContent = "Carrega só quando abre a aba.";
-    addQA("Qual grupo lidera no último ano?", (()=> {
-      const i = years.length-1;
-      const arr = cols.map(c=>({c, v:values[c][i]})).sort((a,b)=>b.v-a.v);
-      return `${arr[0].c} (${fmt(arr[0].v)})`;
-    })());
-    return;
-  }
-
-  if (v==="faixa"){
-    const fx = await getData("faixa");
-    $("rightTitle").textContent = "Faixa etária — leitura";
-    const modo = $("selFaixaModo")?.value || "total";
-
-    if (modo==="total"){
-      const labels = fx.map(r=>String(r.faixaetria||r.faixaetaria||"").trim()).filter(Boolean);
-      const vals = fx.map(r=>toNum(r.total));
-      const arr = labels.map((l,i)=>({l,v:vals[i]})).sort((a,b)=>b.v-a.v);
-      const top = arr.slice(0,12);
-      const rest = arr.slice(12).reduce((s,x)=>s+toNum(x.v),0);
-      const L = top.map(x=>x.l).concat(rest>0?["Outras (soma)"]:[]);
-      const V = top.map(x=>x.v).concat(rest>0?[rest]:[]);
-
-      state.charts.main = makeBarChart(ctxMain, L, "Total", V, "Quais faixas somam mais?");
-      const top4 = top.slice(0,4).map(x=>x.l);
-      const palette = ["rgba(236,72,153,.9)","rgba(168,85,247,.9)","rgba(99,102,241,.9)","rgba(20,184,166,.9)"];
-      const ds = top4.map((name,i)=>{
-        const row = fx.find(r=>String(r.faixaetria||r.faixaetaria||"").trim()===name);
-        const m = MONTHS.map(mm=>toNum(row?.[normKey(mm)]) || toNum(row?.[mm]));
-        return { label:name, data:m, borderColor:palette[i%4], backgroundColor:palette[i%4].replace(".9",".10") };
-      });
-      state.charts.alt = makeLineChart(ctxAlt, MONTHS, ds, "Padrão mensal (top faixas)");
-      addQA("Isso é risco?", "Não. É total. Para risco real, precisa taxa por população (IBGE).");
-    } else {
-      const faixa = $("selFaixa")?.value || "";
-      const row = fx.find(r=>String(r.faixaetria||r.faixaetaria||"").trim().toLowerCase()===faixa.trim().toLowerCase());
-      const series = MONTHS.map(m=>({x:m, y: toNum(row?.[normKey(m)]) || toNum(row?.[m]) }));
-      state.charts.main = makeLineChart(ctxMain, series.map(p=>p.x), [{
-        label: faixa,
-        data: series.map(p=>p.y),
-        borderColor:"rgba(236,72,153,.9)",
-        backgroundColor:"rgba(236,72,153,.12)"
-      }], `Mensal — ${faixa}`);
-      state.charts.alt = makeBarChart(ctxAlt, series.map(p=>p.x), "Mensal", series.map(p=>p.y), "Distribuição mensal");
-    }
-
-    $("metaTxt").textContent = "Carrega só quando abre a aba.";
-    return;
-  }
-
-  if (v==="escolaridade"){
-    const esc = await getData("escolaridade");
-    $("rightTitle").textContent = "Escolaridade — comparações";
-    const modo = $("selEscModo")?.value || "evolucao";
-
-    const years = esc.map(r=>String(r.anonotificao||r.anonotificacao||"").trim()).filter(Boolean);
-    // colunas = tudo exceto ano/total
-    const keys = Object.keys(esc[0]||{}).filter(k=>!["anonotificao","anonotificacao","total"].includes(k));
-    // total por coluna pra escolher top
-    const totals = keys.map(k=>({k, t: esc.reduce((s,r)=>s+toNum(r[k]),0)})).sort((a,b)=>b.t-a.t);
-
-    if (modo==="evolucao"){
-      const keep = totals.slice(0,6).map(x=>x.k);
-      const palette = ["rgba(236,72,153,.9)","rgba(168,85,247,.9)","rgba(99,102,241,.9)","rgba(20,184,166,.9)","rgba(251,113,133,.9)","rgba(147,51,234,.9)"];
-      const ds = keep.map((k,i)=>({
-        label: k,
-        data: esc.map(r=>toNum(r[k])),
-        borderColor: palette[i%palette.length],
-        backgroundColor: palette[i%palette.length].replace(".9",".10")
-      }));
-      state.charts.main = makeLineChart(ctxMain, years, ds, "Top 6 escolaridades (evolução)");
-
-      const i = years.length-1;
-      const top8 = totals.slice(0,8).map(x=>x.k);
-      state.charts.alt = makeBarChart(ctxAlt, top8, `Total (${years[i]})`, top8.map(k=>toNum(esc[i][k])), "Último ano (Top 8)");
-      addQA("Interpretação", "Sem taxa por população, isso é concentração, não risco.");
-    } else {
-      const ano = $("selEscAno")?.value || years.at(-1);
-      const idx = years.indexOf(ano);
-      const top12 = totals
-        .map(x=>({k:x.k, v: toNum(esc[idx][x.k])}))
-        .sort((a,b)=>b.v-a.v)
-        .slice(0,12);
-      state.charts.main = makeBarChart(ctxMain, top12.map(x=>x.k), `Total (${ano})`, top12.map(x=>x.v), "Comparação por escolaridade");
-
-      const top2 = top12.slice(0,2).map(x=>x.k);
-      const ds = top2.map((k,i)=>({
-        label:k,
-        data: esc.map(r=>toNum(r[k])),
-        borderColor: i===0 ? "rgba(236,72,153,.9)" : "rgba(99,102,241,.9)",
-        backgroundColor: i===0 ? "rgba(236,72,153,.10)" : "rgba(99,102,241,.10)"
-      }));
-      state.charts.alt = makeLineChart(ctxAlt, years, ds, "Evolução das 2 maiores categorias");
-    }
-
-    $("metaTxt").textContent = "Carrega só quando abre a aba.";
-    return;
-  }
-}
-
-function addQA(q,a){
-  const div = document.createElement("div");
-  div.className = "cardQ";
-  div.innerHTML = `<div class="q">❓ ${escapeHtml(q)}</div><div class="a">${escapeHtml(a)}</div>`;
-  $("qaCards").appendChild(div);
-}
-
-/* ======= start ======= */
+/* =========================
+   start
+   ========================= */
 (async ()=>{
-  setStatus(false, "Carregando Brasil…");
-  await buildControls();
-  await render();
-  setStatus(true, "Pronto ✅");
+  try{
+    setStatus(false, "Carregando Brasil…");
+    await buildControls();
+    await render();
+    setStatus(true, "Pronto ✅");
+  }catch(err){
+    console.error(err);
+    setStatus(false, "Erro ao iniciar (abra o Console/F12).");
+    alert("Deu erro no JS. Abra o Console (F12) e veja a mensagem. Se quiser, me mande o print do Console.");
+  }
 })();
 </script>
 </body>
