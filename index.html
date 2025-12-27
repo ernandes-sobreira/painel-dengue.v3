@@ -26,6 +26,7 @@
         linear-gradient(180deg, var(--bg0), var(--bg1));
       min-height:100vh;
     }
+
     header{
       padding: 16px 18px;
       border-bottom: 1px solid var(--stroke);
@@ -42,19 +43,34 @@
     }
     h1{margin:0; font-size:16px;}
     .sub{font-size:12px; color:var(--muted);}
-    .status{
-      font-size:12px; padding:8px 10px; border:1px solid var(--stroke);
-      border-radius:999px; background: rgba(255,255,255,.6);
-      display:flex; gap:8px; align-items:center; white-space:nowrap;
+
+    main{max-width:1200px; margin:14px auto 60px; padding:0 18px;}
+
+    /* ✅ ALTURA: faz as duas colunas esticarem na mesma altura da linha */
+    .grid{
+      display:grid;
+      grid-template-columns: 360px 360px; /* se quiser 360px e gráfico igual, mantém */
+      gap:14px;
+      align-items:stretch; /* IMPORTANTE */
+      justify-content:center;
     }
-    .dot{width:10px; height:10px; border-radius:50%; background: rgba(236,72,153,.55); box-shadow: 0 0 0 6px rgba(236,72,153,.12);}
-    main{max-width:760px; margin:14px auto 60px; padding:0 18px;}
-    .grid{display:grid; grid-template-columns: 360px 360px; /* igual à lateral */ gap:14px; align-items:start;}
+
     .panel{
-      background: var(--card); border:1px solid var(--stroke);
-      border-radius: var(--radius); box-shadow: var(--shadow); overflow:hidden;
+      background: var(--card);
+      border:1px solid var(--stroke);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      overflow:hidden;
+
+      /* deixa o grid poder esticar o item */
+      height:100%;
     }
-    .hd{padding:14px; border-bottom:1px solid var(--stroke); display:flex; justify-content:space-between; align-items:center;}
+    .hd{
+      padding:14px;
+      border-bottom:1px solid var(--stroke);
+      display:flex; justify-content:space-between; align-items:center;
+      gap:10px;
+    }
     .hd b{font-size:13px;}
     .tabs{display:flex; flex-wrap:wrap; gap:8px; padding:10px;}
     .tab{
@@ -91,17 +107,34 @@
       display:flex; gap:8px; align-items:center;
     }
     .chip button{ border:none; background:transparent; cursor:pointer; font-weight:900; color:rgba(59,10,42,.7); }
-    .chartWrap{padding:12px 14px 14px;}
-    /* MAIS ALTO para ficar legível */
-    #chartMain{ height: 320px !important; }
+
+    /* ✅ Painel do gráfico vira flex para ocupar TODA altura disponível */
+    .rightPanel{
+      display:flex;
+      flex-direction:column;
+    }
+    .chartWrap{
+      padding:12px 14px 14px;
+      flex:1;                 /* ocupa o restante da altura */
+      min-height: 360px;      /* garante “amplo” mesmo com poucos controles */
+      display:flex;
+    }
+    #chartMain{
+      width:100% !important;
+      height:100% !important; /* ocupa toda a altura do chartWrap */
+    }
+
     .err{
       padding:10px 14px; border-top:1px solid var(--stroke);
       background: rgba(255,255,255,.55);
       font-size:12px; color:#7a0838;
       white-space: pre-wrap; display:none;
     }
-    footer{ max-width:1200px; margin: 12px auto 26px; padding: 0 18px; color: var(--muted); font-size: 12px; }
-    @media (max-width: 980px){ .grid{grid-template-columns:1fr} }
+
+    @media (max-width: 980px){
+      .grid{grid-template-columns:1fr; justify-content:stretch;}
+      .chartWrap{min-height: 320px;}
+    }
   </style>
 </head>
 
@@ -114,10 +147,9 @@
       <div class="sub">Painel-Dengue feito por Ernandes Sobreira • Dados DATASUS 2025</div>
     </div>
   </div>
-  <div class="status">
-    <span class="dot" id="dot"></span>
-    <span id="statusTxt">Iniciando…</span>
-  </div>
+
+  <!-- ✅ REMOVIDO: “OK: 12 linhas / status” -->
+  <div style="font-size:12px;color:var(--muted);"> </div>
 </header>
 
 <main>
@@ -151,10 +183,10 @@
       <div class="err" id="errBox"></div>
     </section>
 
-    <section class="panel">
+    <section class="panel rightPanel">
       <div class="hd">
-        <b id="rightTitle">Brasil — evolução</b>
-        <span id="metaTxt" style="font-size:12px;color:var(--muted)">—</span>
+        <b id="rightTitle">Brasil — dengue</b>
+        <span id="metaTxt" style="font-size:12px;color:var(--muted)">Fonte: DATASUS (seu CSV)</span>
       </div>
       <div class="chartWrap">
         <canvas id="chartMain"></canvas>
@@ -162,8 +194,6 @@
     </section>
   </div>
 </main>
-
-<footer></footer>
 
 <script>
 const DATA_URLS = {
@@ -186,12 +216,6 @@ const state = {
 };
 
 function $(id){ return document.getElementById(id); }
-
-function setStatus(ok, text){
-  $("statusTxt").textContent = text;
-  $("dot").style.background = ok ? "rgba(20,184,166,.55)" : "rgba(236,72,153,.55)";
-  $("dot").style.boxShadow = ok ? "0 0 0 6px rgba(20,184,166,.14)" : "0 0 0 6px rgba(236,72,153,.12)";
-}
 function showErr(msg){ $("errBox").style.display="block"; $("errBox").textContent=msg; }
 function clearErr(){ $("errBox").style.display="none"; $("errBox").textContent=""; }
 
@@ -203,7 +227,6 @@ function normKey(s){
     .trim();
 }
 
-// Trata "-" como NaN (buraco), não como zero
 function toNum(x){
   if (x===null || x===undefined) return NaN;
   const s = String(x).trim();
@@ -222,12 +245,13 @@ function pickKey(sampleRow, includesList){
   return null;
 }
 
-// Remove linhas “lixo” que vêm do rodapé/observação do Excel
-function isGarbageLabel(s){
+/* lixo de rodapé/observação */
+function isGarbageText(s){
   const t = String(s||"").toLowerCase();
   return t.includes("fonte") || t.includes("minist") || t.includes("sinan") ||
          t.includes("sistema") || t.includes("inform") || t.includes("svsa") ||
-         t.includes("notifica") || t.includes("agravo") || t.includes("net");
+         t.includes("notifica") || t.includes("agravo") || t.includes("net") ||
+         t.includes("dados disponibilizados");
 }
 
 /* download */
@@ -249,18 +273,14 @@ function rowsToCSV(columns, rows){
     rows.map(r => columns.map(c=>esc(r[c])).join(";")).join("\n") + "\n";
 }
 
-/* ====== CSV fetch com correção de encoding (UTF-8 -> fallback latin1) ====== */
+/* fetch CSV com fallback latin1 para corrigir acentos */
 async function fetchCSV(url){
   const res = await fetch(url, {cache:"no-store"});
   if (!res.ok){
     throw new Error(`Falha ao baixar: ${url}\nHTTP ${res.status} ${res.statusText}\n\n👉 Confira se o arquivo está na RAIZ do repo e Pages em / (root).`);
   }
   const buf = await res.arrayBuffer();
-
-  // tenta UTF-8
   let text = new TextDecoder("utf-8", {fatal:false}).decode(buf);
-
-  // se tiver muitos "�", tenta latin1
   if ((text.match(/\uFFFD/g)||[]).length >= 2){
     text = new TextDecoder("latin1", {fatal:false}).decode(buf);
   }
@@ -281,10 +301,8 @@ async function fetchCSV(url){
 
 async function getData(key){
   if (state.cache[key]) return state.cache[key];
-  setStatus(false, `Carregando: ${key}…`);
   const pack = await fetchCSV(DATA_URLS[key]);
   state.cache[key] = pack;
-  setStatus(true, `OK: ${key} (${pack.rows.length.toLocaleString("pt-BR")} linhas)`);
   return pack;
 }
 
@@ -292,22 +310,14 @@ async function getData(key){
 function destroyChart(){
   if (state.chart){ try{ state.chart.destroy(); } catch(e){} state.chart=null; }
 }
-
-// Só pra deixar “amplo” e legível (não achatado)
 function yRangeReadable(values){
   const nums = values.filter(v=>Number.isFinite(v));
   if (!nums.length) return {min:0, max:1};
   const min = Math.min(...nums);
   const max = Math.max(...nums);
   const span = Math.max(1, max - min);
-
-  // mais “respiro”
   const pad = span * 0.45;
-
-  // se min for muito acima de 0, sobe o início (fica “amplo” sem parecer 0)
-  if (min > 0){
-    return {min: Math.max(0, min - pad), max: max + pad};
-  }
+  if (min > 0) return {min: Math.max(0, min - pad), max: max + pad};
   return {min: 0, max: max + pad};
 }
 
@@ -329,12 +339,7 @@ function makeChart({type, labels, datasets, title, yValues=[], fixedY=null}){
       layout:{ padding:{ left:10, right:16, top:8, bottom:10 } },
       scales:{
         x:{
-          ticks:{
-            font:{ size:12 },
-            maxRotation: 35,
-            minRotation: 0,
-            autoSkip: true
-          }
+          ticks:{ font:{ size:12 }, maxRotation: 35, autoSkip: true }
         },
         y:{
           min: yr.min,
@@ -377,8 +382,12 @@ async function buildControls(){
   const v = state.view;
 
   if (v==="brasil"){
-    const {rows:br} = await getData("brasil");
-    const years = br.map(r=>String(r.ano||"").trim()).filter(Boolean);
+    const {rows:raw} = await getData("brasil");
+
+    // ✅ remove qualquer linha que não tenha ano YYYY (tira “Dados disponibilizados…” etc.)
+    const br = raw.filter(r => /^\d{4}$/.test(String(r.ano||"").trim()));
+
+    const years = br.map(r=>String(r.ano||"").trim());
 
     addField(`<label>Modo</label>
       <select id="brModo">
@@ -400,19 +409,19 @@ async function buildControls(){
     return;
   }
 
-  if (v==="sexo"){ return; }
-  if (v==="faixa"){ return; }
+  if (v==="sexo" || v==="faixa"){ return; }
 
   if (v==="escolaridade"){
     const {rows:es, headerMap} = await getData("escolaridade");
     const yearKey = pickKey(es[0], ["anonotificacao","ano"]);
-    const years = es.map(r=>String(r[yearKey]||"").trim()).filter(Boolean);
+    const years = es.map(r=>String(r[yearKey]||"").trim()).filter(y=>/^\d{4}$/.test(y));
 
-    const keys = Object.keys(es[0]||{}).filter(k=>k!==yearKey && k!=="total");
+    const keys = Object.keys(es[0]||{})
+      .filter(k=>k!==yearKey && k!=="total"); // ✅ já exclui total
 
     addField(`<label>Visualização</label>
       <select id="escModo">
-        <option value="barras">Barras (todas as classes em 1 ano)</option>
+        <option value="barras">Barras (classes em 1 ano)</option>
         <option value="serie">Série (1 classe ao longo dos anos)</option>
       </select>`);
 
@@ -445,12 +454,7 @@ async function buildControls(){
       buildControls().then(render);
     });
 
-    const hint = document.createElement("div");
-    hint.className="mini";
-    hint.textContent="Comparação com mesmo eixo Y (para não enganar a comparação).";
-
     box.appendChild(btn);
-    box.appendChild(hint);
 
     const chips = renderChips(state.selectedUFs, (i)=>{
       state.selectedUFs.splice(i,1);
@@ -467,7 +471,10 @@ async function buildControls(){
   if (v==="municipios"){
     const {rows:mun} = await getData("municipios");
     const munKey = pickKey(mun[0], ["municip","munic"]);
-    const muns = mun.map(r=>String(r[munKey]||"").trim()).filter(Boolean).sort((a,b)=>a.localeCompare(b,'pt-BR'));
+    const muns = mun
+      .map(r=>String(r[munKey]||"").trim())
+      .filter(m=>m && !isGarbageText(m))
+      .sort((a,b)=>a.localeCompare(b,'pt-BR'));
 
     addField(`<label>Adicionar Município</label>
       <select id="munAdd">${muns.map(m=>`<option>${m}</option>`).join("")}</select>`);
@@ -484,12 +491,7 @@ async function buildControls(){
       buildControls().then(render);
     });
 
-    const hint = document.createElement("div");
-    hint.className="mini";
-    hint.textContent="Comparação com mesmo eixo Y (Regional de Cáceres).";
-
     box.appendChild(btn);
-    box.appendChild(hint);
 
     const chips = renderChips(state.selectedMuns, (i)=>{
       state.selectedMuns.splice(i,1);
@@ -507,32 +509,33 @@ async function buildControls(){
 async function render(){
   clearErr();
   destroyChart();
-  $("metaTxt").textContent="—";
-  state.currentExport = { filename:"recorte.csv", columns:[], rows:[] };
 
+  state.currentExport = { filename:"recorte.csv", columns:[], rows:[] };
   const v = state.view;
 
   if (v==="brasil"){
-    const {rows:br} = await getData("brasil");
+    const {rows:raw} = await getData("brasil");
+    const br = raw.filter(r => /^\d{4}$/.test(String(r.ano||"").trim())); // ✅ só anos válidos
+
     $("rightTitle").textContent="Brasil — dengue";
 
     const modo = $("brModo")?.value || "anual";
 
     if (modo==="anual"){
-      const labels = br.map(r=>String(r.ano||"").trim()).filter(Boolean);
+      const labels = br.map(r=>String(r.ano||"").trim());
       const vals = br.map(r=>toNum(r.total)).map(x=>Number.isFinite(x)?x:0);
 
       state.chart = makeChart({
         type:"line",
         labels,
-        datasets:[{label:"Total (Brasil)", data: vals}],
+        datasets:[{label:"Casos (Brasil)", data: vals}],  // ✅ sem “Total”
         title:"Evolução anual — Brasil",
         yValues: vals
       });
 
       state.currentExport.filename="brasil_anual.csv";
-      state.currentExport.columns=["Ano","Total"];
-      state.currentExport.rows = labels.map((y,i)=>({Ano:y, Total: vals[i]}));
+      state.currentExport.columns=["Ano","Casos"];
+      state.currentExport.rows = labels.map((y,i)=>({Ano:y, Casos: vals[i]}));
       $("metaTxt").textContent="Fonte: DATASUS (seu CSV) • Anual";
       return;
     }
@@ -544,22 +547,17 @@ async function render(){
     function seriesForYear(ano){
       const row = br.find(r=>String(r.ano).trim()===String(ano)) || br[0];
       const arr = MONTHS.map(m=>toNum(row[normKey(m)] || row[m]));
-      const missing = arr.filter(x=>!Number.isFinite(x)).length;
-      return {arr, missing};
+      return arr;
     }
 
     const A = seriesForYear(anoA);
-    const datasets = [{label:`${anoA}`, data:A.arr.map(x=>Number.isFinite(x)?x:null)}];
-    let allVals = A.arr.filter(Number.isFinite);
-
-    let note = "";
-    if (A.missing>=6) note += `⚠ ${anoA}: meses faltando. `;
+    const datasets = [{label:`${anoA}`, data:A.map(x=>Number.isFinite(x)?x:null)}];
+    let allVals = A.filter(Number.isFinite);
 
     if (compare && anoB){
       const B = seriesForYear(anoB);
-      datasets.push({label:`${anoB}`, data:B.arr.map(x=>Number.isFinite(x)?x:null)});
-      allVals = allVals.concat(B.arr.filter(Number.isFinite));
-      if (B.missing>=6) note += `⚠ ${anoB}: meses faltando. `;
+      datasets.push({label:`${anoB}`, data:B.map(x=>Number.isFinite(x)?x:null)});
+      allVals = allVals.concat(B.filter(Number.isFinite));
     }
 
     state.chart = makeChart({
@@ -574,15 +572,15 @@ async function render(){
     state.currentExport.columns = compare ? ["Mes", anoA, anoB] : ["Mes", anoA];
     state.currentExport.rows = MONTHS.map((m,i)=>{
       const obj = {Mes:m};
-      obj[anoA] = Number.isFinite(A.arr[i]) ? A.arr[i] : "";
+      obj[anoA] = Number.isFinite(A[i]) ? A[i] : "";
       if (compare) {
-        const B = seriesForYear(anoB).arr;
+        const B = seriesForYear(anoB);
         obj[anoB] = Number.isFinite(B[i]) ? B[i] : "";
       }
       return obj;
     });
 
-    $("metaTxt").textContent = (note ? note : "") + "Fonte: DATASUS (seu CSV) • Mensal";
+    $("metaTxt").textContent="Fonte: DATASUS (seu CSV) • Mensal";
     return;
   }
 
@@ -594,9 +592,9 @@ async function render(){
     const mascKey = pickKey(sx[0], ["mascul"]);
     const femKey  = pickKey(sx[0], ["femin"]);
 
-    const labels = sx.map(r=>String(r[yearKey]||"").trim()).filter(Boolean);
-    const masc = sx.map(r=>toNum(r[mascKey])).map(x=>Number.isFinite(x)?x:0);
-    const fem  = sx.map(r=>toNum(r[femKey])).map(x=>Number.isFinite(x)?x:0);
+    const labels = sx.map(r=>String(r[yearKey]||"").trim()).filter(y=>/^\d{4}$/.test(y));
+    const masc = sx.filter(r=>/^\d{4}$/.test(String(r[yearKey]||"").trim())).map(r=>toNum(r[mascKey])).map(x=>Number.isFinite(x)?x:0);
+    const fem  = sx.filter(r=>/^\d{4}$/.test(String(r[yearKey]||"").trim())).map(r=>toNum(r[femKey])).map(x=>Number.isFinite(x)?x:0);
     const all  = masc.concat(fem);
 
     state.chart = makeChart({
@@ -622,39 +620,45 @@ async function render(){
     $("rightTitle").textContent="Escolaridade — Brasil";
 
     const yearKey = pickKey(es[0], ["anonotificacao","ano"]);
-    const years = es.map(r=>String(r[yearKey]||"").trim()).filter(Boolean);
-    const keys = Object.keys(es[0]||{}).filter(k=>k!==yearKey && k!=="total");
+    const years = es.map(r=>String(r[yearKey]||"").trim()).filter(y=>/^\d{4}$/.test(y));
+
+    const keys = Object.keys(es[0]||{})
+      .filter(k=>k!==yearKey && k!=="total"); // ✅ sem total
 
     const modo = $("escModo")?.value || "barras";
 
     if (modo==="barras"){
       const ano = $("escAno")?.value || years[0];
-      const idx = years.indexOf(ano);
-      const row = es[idx] || es[0];
+      const row = es.find(r=>String(r[yearKey]||"").trim()===ano) || es[0];
 
-      const labels = keys.map(k=>headerMap[k] || k).filter(l=>!isGarbageLabel(l));
-      const vals = keys
+      const pairs = keys
         .map(k=>({label: headerMap[k] || k, v: toNum(row[k])}))
-        .filter(o=>!isGarbageLabel(o.label))
-        .map(o=>Number.isFinite(o.v)?o.v:0);
+        .filter(o=>o.label && !isGarbageText(o.label) && normKey(o.label)!=="total"); // ✅ remove qualquer “total”
+
+      const labels = pairs.map(p=>p.label);
+      const vals = pairs.map(p=>Number.isFinite(p.v)?p.v:0);
 
       state.chart = makeChart({
         type:"bar",
         labels,
-        datasets:[{label:`Total ${ano}`, data: vals}],
+        datasets:[{label:`Casos ${ano}`, data: vals}],  // ✅ sem total
         title:`Escolaridade — ${ano}`,
         yValues: vals
       });
 
       state.currentExport.filename=`escolaridade_${ano}.csv`;
-      state.currentExport.columns=["Escolaridade","Total"];
-      state.currentExport.rows = labels.map((l,i)=>({Escolaridade:l, Total: vals[i]}));
-      $("metaTxt").textContent="Fonte: DATASUS (seu CSV) • Barras por classe";
+      state.currentExport.columns=["Escolaridade","Casos"];
+      state.currentExport.rows = labels.map((l,i)=>({Escolaridade:l, Casos: vals[i]}));
+      $("metaTxt").textContent="Fonte: DATASUS (seu CSV)";
       return;
     } else {
       const k = $("escClasse")?.value || keys[0];
       const labels = years;
-      const vals = es.map(r=>toNum(r[k])).map(x=>Number.isFinite(x)?x:0);
+      const vals = years.map(y=>{
+        const r = es.find(rr=>String(rr[yearKey]||"").trim()===y);
+        const n = r ? toNum(r[k]) : NaN;
+        return Number.isFinite(n)?n:0;
+      });
 
       state.chart = makeChart({
         type:"line",
@@ -665,43 +669,43 @@ async function render(){
       });
 
       state.currentExport.filename=`escolaridade_serie.csv`;
-      state.currentExport.columns=["Ano","Total"];
-      state.currentExport.rows = labels.map((y,i)=>({Ano:y, Total: vals[i]}));
-      $("metaTxt").textContent="Fonte: DATASUS (seu CSV) • Série anual";
+      state.currentExport.columns=["Ano","Casos"];
+      state.currentExport.rows = labels.map((y,i)=>({Ano:y, Casos: vals[i]}));
+      $("metaTxt").textContent="Fonte: DATASUS (seu CSV)";
       return;
     }
   }
 
   if (v==="faixa"){
     const {rows:fx} = await getData("faixa");
-    $("rightTitle").textContent="Faixa etária — Total";
+    $("rightTitle").textContent="Faixa etária — Brasil";
 
     const faixaKey = pickKey(fx[0], ["faixaetaria","faixa"]);
     const totalKey = pickKey(fx[0], ["total"]);
 
     const pairs = fx.map(r=>({
       faixa: String(r[faixaKey]||"").trim(),
-      total: toNum(r[totalKey])
+      v: toNum(r[totalKey])
     }))
-    .filter(p=>p.faixa && !isGarbageLabel(p.faixa));
+    .filter(p=>p.faixa && !isGarbageText(p.faixa) && normKey(p.faixa)!=="total"); // ✅ remove “Total”
 
-    pairs.sort((a,b)=>(Number.isFinite(b.total)?b.total:0)-(Number.isFinite(a.total)?a.total:0));
+    pairs.sort((a,b)=>(Number.isFinite(b.v)?b.v:0)-(Number.isFinite(a.v)?a.v:0));
 
     const labels = pairs.map(p=>p.faixa);
-    const vals = pairs.map(p=>Number.isFinite(p.total)?p.total:0);
+    const vals = pairs.map(p=>Number.isFinite(p.v)?p.v:0);
 
     state.chart = makeChart({
       type:"bar",
       labels,
-      datasets:[{label:"Total", data: vals}],
-      title:"Distribuição por faixa etária (total geral)",
+      datasets:[{label:"Casos", data: vals}], // ✅ sem total
+      title:"Distribuição por faixa etária",
       yValues: vals
     });
 
-    state.currentExport.filename="faixa_etaria_total.csv";
-    state.currentExport.columns=["FaixaEtaria","Total"];
-    state.currentExport.rows = labels.map((l,i)=>({FaixaEtaria:l, Total: vals[i]}));
-    $("metaTxt").textContent="Fonte: DATASUS (seu CSV) • Total geral";
+    state.currentExport.filename="faixa_etaria.csv";
+    state.currentExport.columns=["FaixaEtaria","Casos"];
+    state.currentExport.rows = labels.map((l,i)=>({FaixaEtaria:l, Casos: vals[i]}));
+    $("metaTxt").textContent="Fonte: DATASUS (seu CSV)";
     return;
   }
 
@@ -709,7 +713,7 @@ async function render(){
     const {rows:est} = await getData("estados");
     $("rightTitle").textContent="Estados — comparação";
 
-    if (!state.selectedUFs.length) { $("metaTxt").textContent="Adicione pelo menos 1 estado."; return; }
+    if (!state.selectedUFs.length) { $("metaTxt").textContent="Fonte: DATASUS (seu CSV)"; return; }
 
     const years = Object.keys(est[0]||{}).filter(k=>/^\d{4}$/.test(k)).sort();
     const datasets = [];
@@ -723,7 +727,7 @@ async function render(){
       datasets.push({label: uf, data: vals});
     }
 
-    const fixedY = {min:0, max: (globalMax*1.25 || 1)}; // mais amplo
+    const fixedY = {min:0, max: (globalMax*1.25 || 1)};
     state.chart = makeChart({
       type:"line",
       labels: years,
@@ -739,12 +743,13 @@ async function render(){
       const obj={Ano:y};
       for (const uf of state.selectedUFs){
         const row = est.find(r=>String(r.estado||"").trim()===uf);
-        obj[uf] = row ? (Number.isFinite(toNum(row[y])) ? toNum(row[y]) : 0) : "";
+        const n = row ? toNum(row[y]) : NaN;
+        obj[uf] = Number.isFinite(n) ? n : 0;
       }
       return obj;
     });
 
-    $("metaTxt").textContent="Fonte: DATASUS (seu CSV) • Mesmo eixo Y para comparar";
+    $("metaTxt").textContent="Fonte: DATASUS (seu CSV) • Mesmo eixo Y";
     return;
   }
 
@@ -755,7 +760,7 @@ async function render(){
     const munKey = pickKey(mun[0], ["municip","munic"]);
     const years = Object.keys(mun[0]||{}).filter(k=>/^\d{4}$/.test(k)).sort();
 
-    if (!state.selectedMuns.length) { $("metaTxt").textContent="Adicione pelo menos 1 município."; return; }
+    if (!state.selectedMuns.length) { $("metaTxt").textContent="Fonte: DATASUS (seu CSV)"; return; }
 
     const datasets = [];
     let globalMax = 0;
@@ -768,7 +773,7 @@ async function render(){
       datasets.push({label:name, data: vals});
     }
 
-    const fixedY = {min:0, max: (globalMax*1.25 || 1)}; // mais amplo
+    const fixedY = {min:0, max: (globalMax*1.25 || 1)};
     state.chart = makeChart({
       type:"line",
       labels: years,
@@ -784,35 +789,36 @@ async function render(){
       const obj={Ano:y};
       for (const name of state.selectedMuns){
         const row = mun.find(r=>String(r[munKey]||"").trim()===name);
-        obj[name] = row ? (Number.isFinite(toNum(row[y])) ? toNum(row[y]) : 0) : "";
+        const n = row ? toNum(row[y]) : NaN;
+        obj[name] = Number.isFinite(n) ? n : 0;
       }
       return obj;
     });
 
-    $("metaTxt").textContent="Fonte: DATASUS (seu CSV) • Mesmo eixo Y para comparar";
+    $("metaTxt").textContent="Fonte: DATASUS (seu CSV) • Mesmo eixo Y";
     return;
   }
 }
 
-/* events */
+/* eventos */
 document.querySelectorAll(".tab").forEach(t=>{
   t.addEventListener("click", async ()=>{
     document.querySelectorAll(".tab").forEach(x=>x.classList.toggle("active", x===t));
     state.view = t.dataset.view;
     try{ clearErr(); await buildControls(); await render(); }
-    catch(e){ console.error(e); showErr(String(e.stack||e.message||e)); setStatus(false,"Erro."); }
+    catch(e){ console.error(e); showErr(String(e.stack||e.message||e)); }
   });
 });
 
 $("btnApply").addEventListener("click", async ()=>{
   try{ clearErr(); await render(); }
-  catch(e){ console.error(e); showErr(String(e.stack||e.message||e)); setStatus(false,"Erro."); }
+  catch(e){ console.error(e); showErr(String(e.stack||e.message||e)); }
 });
 
 $("btnReload").addEventListener("click", async ()=>{
   state.cache = {};
   try{ clearErr(); await buildControls(); await render(); }
-  catch(e){ console.error(e); showErr(String(e.stack||e.message||e)); setStatus(false,"Erro."); }
+  catch(e){ console.error(e); showErr(String(e.stack||e.message||e)); }
 });
 
 $("btnPng").addEventListener("click", ()=>{
@@ -833,14 +839,11 @@ $("btnCsv").addEventListener("click", ()=>{
 (async ()=>{
   try{
     clearErr();
-    setStatus(false, "Carregando…");
     await buildControls();
     await render();
-    setStatus(true, "Pronto ✅");
   }catch(e){
     console.error(e);
     showErr(String(e.stack||e.message||e));
-    setStatus(false, "Erro ao iniciar.");
   }
 })();
 </script>
