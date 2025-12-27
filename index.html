@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>Painel Dengue — Brasil (Leve e Sem Travar)</title>
+  <title>Painel Dengue — Brasil | Ernandes Sobreira</title>
   <meta name="theme-color" content="#ec4899"/>
 
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
@@ -46,6 +46,7 @@
       font-size:12px; padding:8px 10px; border:1px solid var(--stroke);
       border-radius:999px; background: rgba(255,255,255,.6);
       display:flex; gap:8px; align-items:center;
+      white-space: nowrap;
     }
     .dot{width:10px; height:10px; border-radius:50%; background: rgba(236,72,153,.55); box-shadow: 0 0 0 6px rgba(236,72,153,.12);}
     main{max-width:1200px; margin:14px auto 60px; padding:0 18px;}
@@ -60,6 +61,7 @@
     .tab{
       border:1px solid var(--stroke); background: rgba(255,255,255,.65);
       border-radius:999px; padding:8px 10px; font-size:12px; cursor:pointer;
+      user-select:none;
     }
     .tab.active{
       border-color: rgba(236,72,153,.45);
@@ -74,10 +76,12 @@
     }
     .row{display:flex; gap:10px; flex-wrap:wrap; align-items:end;}
     .field{flex:1 1 160px; min-width:160px;}
+    .btnRow{display:flex; gap:10px; margin-top:10px; flex-wrap:wrap;}
     .btn{
       border:1px solid rgba(236,72,153,.35);
       background: linear-gradient(90deg, rgba(236,72,153,.18), rgba(168,85,247,.12));
       border-radius:14px; padding:10px 12px; font-weight:800; cursor:pointer;
+      user-select:none;
     }
     .btn.ghost{background: rgba(255,255,255,.6); border-color: var(--stroke);}
     .chartWrap{padding:12px 14px 14px;}
@@ -89,6 +93,10 @@
       white-space: pre-wrap;
       display:none;
     }
+    footer{
+      max-width:1200px; margin: 12px auto 26px; padding: 0 18px;
+      color: var(--muted); font-size: 12px;
+    }
     @media (max-width: 980px){ .grid{grid-template-columns:1fr} }
   </style>
 </head>
@@ -99,7 +107,7 @@
     <div class="logo"></div>
     <div>
       <h1>Painel Dengue — Brasil</h1>
-      <div class="sub">Leve • sem travar • mostra erro na tela se faltar arquivo</div>
+      <div class="sub">Simples • leve • 1 gráfico por aba • downloads</div>
     </div>
   </div>
   <div class="status">
@@ -110,7 +118,6 @@
 
 <main>
   <div class="grid">
-
     <section class="panel">
       <div class="hd">
         <b>Controles</b>
@@ -120,17 +127,19 @@
       <div class="tabs" id="tabs">
         <div class="tab active" data-view="brasil">Brasil</div>
         <div class="tab" data-view="sexo">Sexo</div>
-        <div class="tab" data-view="raca">Raça/Cor</div>
-        <div class="tab" data-view="faixa">Faixa etária</div>
         <div class="tab" data-view="escolaridade">Escolaridade</div>
+        <div class="tab" data-view="faixa">Faixa etária</div>
         <div class="tab" data-view="estados">Estados</div>
-        <div class="tab" data-view="municipios">Municípios (Regional Cáceres)</div>
+        <div class="tab" data-view="municipios">Municípios (Reg. Cáceres)</div>
       </div>
 
       <div class="content">
         <div class="row" id="controlsRow"></div>
-        <div style="display:flex; gap:10px; margin-top:10px;">
+
+        <div class="btnRow">
           <button class="btn" id="btnApply">✨ Atualizar</button>
+          <button class="btn ghost" id="btnPng">⬇️ Baixar gráfico (PNG)</button>
+          <button class="btn ghost" id="btnCsv">⬇️ Baixar dados (CSV)</button>
         </div>
       </div>
 
@@ -142,26 +151,24 @@
         <b id="rightTitle">Brasil — evolução</b>
         <span style="font-size:12px;color:var(--muted)" id="metaTxt">—</span>
       </div>
-
       <div class="chartWrap">
-        <canvas id="chartMain" height="140"></canvas>
-      </div>
-      <div class="chartWrap" style="padding-top:0">
-        <canvas id="chartAlt" height="120"></canvas>
+        <canvas id="chartMain" height="160"></canvas>
       </div>
     </section>
-
   </div>
 </main>
 
+<footer>
+  Painel-Dengue feito por <b>Ernandes Sobreira</b> • Dados: <b>DATASUS</b> (2025) • Visual estilo Guardiãs-da-Saúde.
+</footer>
+
 <script>
-/* ===== ARQUIVOS (na raiz do repo) ===== */
+/* ===== arquivos na raiz ===== */
 const DATA_URLS = {
   brasil:       "dados-dengue.csv",
   sexo:         "dados-dengue-sexo.csv",
-  raca:         "dados-dengue-raca.csv",
-  faixa:        "dados-dengue-faixa-etaria.csv",
   escolaridade: "dados-dengue-escolaridade.csv",
+  faixa:        "dados-dengue-faixa-etaria.csv",
   estados:      "dados-dengue-estados.csv",
   municipios:   "dados-dengue-municipios-regional-caceres.csv"
 };
@@ -171,9 +178,9 @@ const MONTHS = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov
 const state = {
   view: "brasil",
   cache: {},
-  chartMain: null,
-  chartAlt: null,
-  municipioQuery: ""
+  chart: null,
+  // payload para download CSV (recorte exibido)
+  currentExport: { filename:"recorte.csv", columns:[], rows:[] }
 };
 
 function $(id){ return document.getElementById(id); }
@@ -210,61 +217,123 @@ function toNum(x){
 }
 function fmt(n){ return Math.round(toNum(n)).toLocaleString("pt-BR"); }
 
+/* ===== download CSV do recorte mostrado ===== */
+function downloadText(filename, text){
+  const blob = new Blob([text], {type:"text/plain;charset=utf-8"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+function rowsToCSV(columns, rows){
+  const esc = (v)=> {
+    const s = String(v ?? "");
+    if (s.includes(";") || s.includes('"') || s.includes("\n")) return `"${s.replace(/"/g,'""')}"`;
+    return s;
+  };
+  const head = columns.map(esc).join(";");
+  const body = rows.map(r => columns.map(c=>esc(r[c])).join(";")).join("\n");
+  return head + "\n" + body + "\n";
+}
+
+/* ===== fetch CSV (com erro visível) ===== */
 async function fetchCSV(url){
-  // Aqui é onde a mágica acontece: se der 404, você VÊ.
   const res = await fetch(url, {cache:"no-store"});
   if (!res.ok){
     throw new Error(`Falha ao baixar: ${url}\nHTTP ${res.status} ${res.statusText}\n\n👉 Verifique se o arquivo está na RAIZ do repo e se o GitHub Pages está apontando para / (root).`);
   }
   const text = await res.text();
   const parsed = Papa.parse(text, {header:true, skipEmptyLines:true, delimiter:";"});
-  const rows = (parsed.data||[]).map(r=>{
+  // normaliza chaves
+  return (parsed.data||[]).map(r=>{
     const o = {};
     for (const k of Object.keys(r)) o[normKey(k)] = r[k];
     return o;
   });
-  return rows;
 }
 
 async function getData(key){
   if (state.cache[key]) return state.cache[key];
   setStatus(false, `Carregando: ${key}…`);
-  const url = DATA_URLS[key];
-  const rows = await fetchCSV(url);
+  const rows = await fetchCSV(DATA_URLS[key]);
   state.cache[key] = rows;
   setStatus(true, `OK: ${key} (${rows.length.toLocaleString("pt-BR")} linhas)`);
   return rows;
 }
 
-function destroyCharts(){
-  if (state.chartMain){ try{ state.chartMain.destroy(); }catch(e){} state.chartMain=null; }
-  if (state.chartAlt){ try{ state.chartAlt.destroy(); }catch(e){} state.chartAlt=null; }
+/* ===== chart helpers ===== */
+function destroyChart(){
+  if (state.chart){ try{ state.chart.destroy(); } catch(e){} state.chart=null; }
 }
 
-function lineChart(canvas, labels, datasets, title){
+/* y-axis com “zoom” automático: não começa em 0 se achatar tudo */
+function yRangeFrom(values){
+  const nums = values.map(toNum).filter(v=>Number.isFinite(v));
+  const min = Math.min(...nums);
+  const max = Math.max(...nums);
+  if (!Number.isFinite(min) || !Number.isFinite(max)) return {min:0, max:1};
+
+  // Se variação for pequena em relação ao max, começar perto do mínimo.
+  // Se variação for grande, pode começar em 0.
+  const span = max - min;
+  const ratio = span / (max || 1);
+
+  if (ratio < 0.35 && min > 0){
+    const pad = span * 0.15;
+    return {min: Math.max(0, min - pad), max: max + pad};
+  } else {
+    return {min: 0, max: max * 1.08};
+  }
+}
+
+function makeLine(canvas, labels, datasets, title, yValues){
+  const yr = yRangeFrom(yValues || []);
   return new Chart(canvas, {
     type:"line",
     data:{ labels, datasets },
     options:{
       responsive:true, maintainAspectRatio:false,
-      interaction:{mode:"index",intersect:false},
-      plugins:{ title:{display:!!title, text:title} },
-      scales:{ y:{ beginAtZero:true, ticks:{ callback:(v)=>fmt(v) } } }
-    }
-  });
-}
-function barChart(canvas, labels, label, values, title){
-  return new Chart(canvas, {
-    type:"bar",
-    data:{ labels, datasets:[{label, data:values}] },
-    options:{
-      responsive:true, maintainAspectRatio:false,
-      plugins:{ title:{display:!!title, text:title}, legend:{display:false} },
-      scales:{ y:{ beginAtZero:true, ticks:{ callback:(v)=>fmt(v) } } }
+      interaction:{mode:"index", intersect:false},
+      plugins:{
+        legend:{ display:true, labels:{ usePointStyle:true, boxWidth:10 } },
+        title:{ display:!!title, text:title }
+      },
+      scales:{
+        y:{
+          min: yr.min,
+          max: yr.max,
+          ticks:{ callback:(v)=>fmt(v) }
+        }
+      },
+      elements:{ line:{ tension:0.25, borderWidth:2 }, point:{ radius:2, hoverRadius:5 } }
     }
   });
 }
 
+function makeBar(canvas, labels, label, values, title){
+  const yr = yRangeFrom(values || []);
+  return new Chart(canvas, {
+    type:"bar",
+    data:{ labels, datasets:[{ label, data: values, borderWidth:1 }] },
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{display:false}, title:{display:!!title, text:title} },
+      scales:{
+        y:{
+          min: yr.min,
+          max: yr.max,
+          ticks:{ callback:(v)=>fmt(v) }
+        }
+      }
+    }
+  });
+}
+
+/* ===== controls ===== */
 function clearControls(){ $("controlsRow").innerHTML = ""; }
 function addField(html){
   const d = document.createElement("div");
@@ -273,6 +342,7 @@ function addField(html){
   $("controlsRow").appendChild(d);
 }
 
+/* monta controles por aba */
 async function buildControls(){
   clearControls();
   const v = state.view;
@@ -280,164 +350,195 @@ async function buildControls(){
   if (v==="brasil"){
     const br = await getData("brasil");
     const years = br.map(r=>String(r.ano||"").trim()).filter(Boolean);
+
     addField(`<label>Modo</label>
       <select id="brModo">
         <option value="anual">Anual</option>
         <option value="mensal">Mensal (por ano)</option>
       </select>`);
+
     addField(`<label>Ano (mensal)</label>
       <select id="brAno">${years.map(y=>`<option>${y}</option>`).join("")}</select>`);
     return;
   }
 
-  if (v==="sexo" || v==="raca" || v==="escolaridade"){
-    const key = v;
-    const rows = await getData(key);
-    const years = rows.map(r=>String(r.anonotificacao||"").trim()).filter(Boolean);
-    addField(`<label>Modo</label>
-      <select id="modo2">
-        <option value="evolucao">Evolução anual</option>
-        <option value="barras">Comparação (ano)</option>
+  if (v==="sexo"){
+    // anual (Ano notificação)
+    return; // sem controles (simples)
+  }
+
+  if (v==="escolaridade"){
+    const es = await getData("escolaridade");
+    const years = es.map(r=>String(r.anonotificacao||"").trim()).filter(Boolean);
+
+    // lista de escolaridades (colunas)
+    const keys = Object.keys(es[0]||{})
+      .filter(k=>k!=="anonotificacao" && k!=="total");
+
+    const pretty = (k)=>k; // já está legível porque veio do CSV (mas normalizado)
+    addField(`<label>Visualização</label>
+      <select id="escModo">
+        <option value="barras">Barras (classes no eixo X)</option>
+        <option value="serie">Série (1 escolaridade ao longo dos anos)</option>
       </select>`);
-    addField(`<label>Ano (barras)</label>
-      <select id="ano2">${years.map(y=>`<option>${y}</option>`).join("")}</select>`);
+
+    addField(`<label>Ano (modo barras)</label>
+      <select id="escAno">${years.map(y=>`<option>${y}</option>`).join("")}</select>`);
+
+    addField(`<label>Escolaridade (modo série)</label>
+      <select id="escClasse">
+        ${keys.map(k=>`<option value="${k}">${pretty(k)}</option>`).join("")}
+      </select>`);
     return;
   }
 
   if (v==="faixa"){
-    const fx = await getData("faixa");
-    const labels = fx.map(r=>String(r.faixaetaria||"").trim()).filter(Boolean);
-    addField(`<label>Faixa etária</label>
-      <select id="fxSel">${labels.map(x=>`<option>${x}</option>`).join("")}</select>`);
+    // sem controles: barras de Totais
     return;
   }
 
   if (v==="estados"){
     const est = await getData("estados");
     const ufs = est.map(r=>String(r.estado||"").trim()).filter(Boolean);
+
     addField(`<label>Estado</label>
       <select id="ufSel">${ufs.map(u=>`<option>${u}</option>`).join("")}</select>`);
     return;
   }
 
   if (v==="municipios"){
+    const mun = await getData("municipios");
+    const muns = mun.map(r=>String(r.municipio||"").trim()).filter(Boolean).sort((a,b)=>a.localeCompare(b,'pt-BR'));
+
     addField(`<label>Município (Regional de Cáceres)</label>
-      <input id="munInp" placeholder="Ex: Cáceres / Mirassol D’Oeste / Rio Branco…" value="${state.municipioQuery}"/>`);
+      <select id="munSel">${muns.map(m=>`<option>${m}</option>`).join("")}</select>`);
     return;
   }
 }
 
+/* ===== render por aba ===== */
 async function render(){
   clearErr();
-  destroyCharts();
-
+  destroyChart();
   $("metaTxt").textContent = "—";
+  state.currentExport = { filename:"recorte.csv", columns:[], rows:[] };
 
   const v = state.view;
-  const cMain = $("chartMain");
-  const cAlt  = $("chartAlt");
+  const c = $("chartMain");
 
   if (v==="brasil"){
     const br = await getData("brasil");
-    $("rightTitle").textContent = "Brasil — evolução";
-
+    $("rightTitle").textContent = "Brasil — dengue";
     const modo = $("brModo")?.value || "anual";
+
     if (modo==="anual"){
-      const series = br.map(r=>({x:String(r.ano||"").trim(), y:toNum(r.total)})).filter(p=>p.x);
-      state.chartMain = lineChart(cMain, series.map(p=>p.x), [{label:"Total", data:series.map(p=>p.y)}], "Brasil — anual");
-      const last = series.slice(-8);
-      state.chartAlt = barChart(cAlt, last.map(p=>p.x), "Total", last.map(p=>p.y), "Últimos anos");
-      $("metaTxt").textContent = "OK";
+      const labels = br.map(r=>String(r.ano||"").trim()).filter(Boolean);
+      const values = br.map(r=>toNum(r.total));
+      state.chart = makeLine(c, labels, [{label:"Total (Brasil)", data:values}], "Evolução anual", values);
+
+      state.currentExport.filename = "brasil_anual.csv";
+      state.currentExport.columns = ["Ano","Total"];
+      state.currentExport.rows = labels.map((y,i)=>({Ano:y, Total: values[i]}));
+      $("metaTxt").textContent = "Fonte: DATASUS (seu CSV) • Anual";
     } else {
-      const ano = $("brAno")?.value || String(br.at(-1)?.ano||"");
-      const row = br.find(r=>String(r.ano).trim()===String(ano));
-      const series = MONTHS.map(m=>toNum(row?.[normKey(m)] || row?.[m]));
-      state.chartMain = lineChart(cMain, MONTHS, [{label:`Mensal ${ano}`, data:series}], `Brasil — mensal (${ano})`);
-      state.chartAlt  = barChart(cAlt, MONTHS, `Mensal ${ano}`, series, "Distribuição mensal");
-      $("metaTxt").textContent = "OK";
+      const ano = $("brAno")?.value || String(br[0]?.ano||"");
+      const row = br.find(r=>String(r.ano).trim()===String(ano)) || br[0];
+      const values = MONTHS.map(m=>toNum(row[normKey(m)] || row[m]));
+      state.chart = makeBar(c, MONTHS, `Brasil ${ano}`, values, `Brasil — mensal (${ano})`);
+
+      state.currentExport.filename = `brasil_mensal_${ano}.csv`;
+      state.currentExport.columns = ["Mes","Total"];
+      state.currentExport.rows = MONTHS.map((m,i)=>({Mes:m, Total: values[i]}));
+      $("metaTxt").textContent = "Fonte: DATASUS (seu CSV) • Mensal";
     }
     return;
   }
 
   if (v==="sexo"){
     const sx = await getData("sexo");
-    $("rightTitle").textContent = "Sexo";
-    const modo = $("modo2")?.value || "evolucao";
-    const years = sx.map(r=>String(r.anonotificacao||"").trim()).filter(Boolean);
+    $("rightTitle").textContent = "Sexo — evolução anual";
+    const labels = sx.map(r=>String(r.anonotificacao||"").trim()).filter(Boolean);
     const masc = sx.map(r=>toNum(r.masculino));
     const fem  = sx.map(r=>toNum(r.feminino));
-    if (modo==="evolucao"){
-      state.chartMain = lineChart(cMain, years, [
+    const yValues = masc.concat(fem);
+
+    state.chart = makeLine(
+      c,
+      labels,
+      [
         {label:"Masculino", data:masc},
-        {label:"Feminino", data:fem},
-      ], "Evolução anual");
-      const i = years.length-1;
-      state.chartAlt = barChart(cAlt, ["Masculino","Feminino"], `Total ${years[i]}`, [masc[i], fem[i]], "Último ano");
-    } else {
-      const ano = $("ano2")?.value || years.at(-1);
-      const idx = years.indexOf(ano);
-      state.chartMain = barChart(cMain, ["Masculino","Feminino"], `Total ${ano}`, [masc[idx], fem[idx]], "Comparação");
-      state.chartAlt  = lineChart(cAlt, years, [{label:"Total (M+F)", data: years.map((_,i)=>masc[i]+fem[i])}], "Total (M+F)");
-    }
-    $("metaTxt").textContent = "OK";
-    return;
-  }
+        {label:"Feminino", data:fem}
+      ],
+      "Brasil — casos por sexo (anual)",
+      yValues
+    );
 
-  if (v==="raca"){
-    const rc = await getData("raca");
-    $("rightTitle").textContent = "Raça/Cor";
-    const modo = $("modo2")?.value || "evolucao";
-    const years = rc.map(r=>String(r.anonotificacao||"").trim()).filter(Boolean);
-    const cols = ["branca","preta","amarela","parda","indigena"];
-    const values = cols.map(c=>rc.map(r=>toNum(r[c])));
-    if (modo==="evolucao"){
-      state.chartMain = lineChart(cMain, years, cols.map((c,i)=>({label:c, data:values[i]})), "Evolução anual");
-      const i = years.length-1;
-      state.chartAlt  = barChart(cAlt, cols, `Total ${years[i]}`, cols.map((_,j)=>values[j][i]), "Último ano");
-    } else {
-      const ano = $("ano2")?.value || years.at(-1);
-      const idx = years.indexOf(ano);
-      state.chartMain = barChart(cMain, cols, `Total ${ano}`, cols.map((_,j)=>values[j][idx]), "Comparação");
-      state.chartAlt  = lineChart(cAlt, years, [{label:"Total (soma)", data: years.map((_,i)=>cols.reduce((s,_,j)=>s+values[j][i],0))}], "Total");
-    }
-    $("metaTxt").textContent = "OK";
-    return;
-  }
-
-  if (v==="faixa"){
-    const fx = await getData("faixa");
-    $("rightTitle").textContent = "Faixa etária";
-    const sel = $("fxSel")?.value || "";
-    const row = fx.find(r=>String(r.faixaetaria||"").trim()===sel) || fx[0];
-    const series = MONTHS.map(m=>toNum(row?.[normKey(m)] || row?.[m]));
-    state.chartMain = lineChart(cMain, MONTHS, [{label: String(row.faixaetaria||sel||"Faixa"), data: series}], "Sazonalidade (mensal)");
-    state.chartAlt  = barChart(cAlt, MONTHS, "Mensal", series, "Distribuição mensal");
-    $("metaTxt").textContent = "OK";
+    state.currentExport.filename = "sexo_anual.csv";
+    state.currentExport.columns = ["Ano","Masculino","Feminino"];
+    state.currentExport.rows = labels.map((y,i)=>({Ano:y, Masculino: masc[i], Feminino: fem[i]}));
+    $("metaTxt").textContent = "Fonte: DATASUS (seu CSV) • Anual";
     return;
   }
 
   if (v==="escolaridade"){
     const es = await getData("escolaridade");
     $("rightTitle").textContent = "Escolaridade";
-    const modo = $("modo2")?.value || "evolucao";
+
+    const modo = $("escModo")?.value || "barras";
     const years = es.map(r=>String(r.anonotificacao||"").trim()).filter(Boolean);
 
-    const keys = Object.keys(es[0]||{}).filter(k=>k!=="anonotificacao" && k!=="total");
-    const totals = keys.map(k=>({k, t: es.reduce((s,r)=>s+toNum(r[k]),0)})).sort((a,b)=>b.t-a.t);
-    const keep = totals.slice(0,6).map(x=>x.k);
+    const keys = Object.keys(es[0]||{})
+      .filter(k=>k!=="anonotificacao" && k!=="total");
 
-    if (modo==="evolucao"){
-      state.chartMain = lineChart(cMain, years, keep.map(k=>({label:k, data: es.map(r=>toNum(r[k]))})), "Top escolaridades — evolução");
-      const i = years.length-1;
-      state.chartAlt  = barChart(cAlt, keep, `Total ${years[i]}`, keep.map(k=>toNum(es[i][k])), "Último ano (Top 6)");
-    } else {
-      const ano = $("ano2")?.value || years.at(-1);
+    if (modo==="barras"){
+      const ano = $("escAno")?.value || years[0];
       const idx = years.indexOf(ano);
-      const top12 = totals.map(x=>({k:x.k, v:toNum(es[idx][x.k])})).sort((a,b)=>b.v-a.v).slice(0,12);
-      state.chartMain = barChart(cMain, top12.map(x=>x.k), `Total ${ano}`, top12.map(x=>x.v), "Comparação (Top 12)");
-      state.chartAlt  = lineChart(cAlt, years, top12.slice(0,2).map(x=>({label:x.k, data: es.map(r=>toNum(r[x.k]))})), "Evolução (Top 2)");
+      const row = es[idx] || es[0];
+
+      // barras com todas as classes (x = classes)
+      const labels = keys.slice();
+      const values = labels.map(k=>toNum(row[k]));
+
+      state.chart = makeBar(c, labels, `Total ${ano}`, values, `Escolaridade — Brasil (${ano})`);
+
+      state.currentExport.filename = `escolaridade_${ano}.csv`;
+      state.currentExport.columns = ["Escolaridade","Total"];
+      state.currentExport.rows = labels.map((lab,i)=>({Escolaridade: lab, Total: values[i]}));
+      $("metaTxt").textContent = "Fonte: DATASUS (seu CSV) • Barras por classe";
+    } else {
+      const k = $("escClasse")?.value || keys[0];
+      const labels = years;
+      const values = es.map(r=>toNum(r[k]));
+
+      state.chart = makeLine(c, labels, [{label:k, data:values}], `Escolaridade — série (${k})`, values);
+
+      state.currentExport.filename = `escolaridade_serie_${k}.csv`;
+      state.currentExport.columns = ["Ano","Total"];
+      state.currentExport.rows = labels.map((y,i)=>({Ano:y, Total: values[i]}));
+      $("metaTxt").textContent = "Fonte: DATASUS (seu CSV) • Série anual";
     }
-    $("metaTxt").textContent = "OK";
+    return;
+  }
+
+  if (v==="faixa"){
+    const fx = await getData("faixa");
+    $("rightTitle").textContent = "Faixa etária — total (geral)";
+
+    // seu CSV tem Total geral por faixa (não por ano)
+    const labels = fx.map(r=>String(r.faixaetaria||"").trim()).filter(Boolean);
+    const values = fx.map(r=>toNum(r.total));
+
+    // ordena do maior pro menor pra ficar legível (pode trocar depois)
+    const zipped = labels.map((l,i)=>({l, v:values[i]})).sort((a,b)=>b.v-a.v);
+    const lab2 = zipped.map(x=>x.l);
+    const val2 = zipped.map(x=>x.v);
+
+    state.chart = makeBar(c, lab2, "Total", val2, "Distribuição por faixa etária (Total)");
+
+    state.currentExport.filename = "faixa_etaria_total.csv";
+    state.currentExport.columns = ["FaixaEtaria","Total"];
+    state.currentExport.rows = lab2.map((l,i)=>({FaixaEtaria:l, Total: val2[i]}));
+    $("metaTxt").textContent = "Fonte: DATASUS (seu CSV) • Total geral";
     return;
   }
 
@@ -445,36 +546,35 @@ async function render(){
     const est = await getData("estados");
     const uf = $("ufSel")?.value || String(est[0]?.estado||"");
     $("rightTitle").textContent = `Estado — ${uf}`;
+
     const row = est.find(r=>String(r.estado||"").trim()===uf) || est[0];
     const years = Object.keys(row).filter(k=>/^\d{4}$/.test(k)).sort();
-    const series = years.map(y=>toNum(row[y]));
-    state.chartMain = lineChart(cMain, years, [{label:uf, data:series}], "Evolução anual");
-    state.chartAlt  = barChart(cAlt, years.slice(-8), "Total", series.slice(-8), "Últimos anos");
-    $("metaTxt").textContent = "OK";
+    const values = years.map(y=>toNum(row[y]));
+
+    state.chart = makeLine(c, years, [{label:uf, data:values}], `Evolução anual — ${uf}`, values);
+
+    state.currentExport.filename = `estado_${uf}.csv`;
+    state.currentExport.columns = ["Ano","Total"];
+    state.currentExport.rows = years.map((y,i)=>({Ano:y, Total: values[i]}));
+    $("metaTxt").textContent = "Fonte: DATASUS (seu CSV) • Anual";
     return;
   }
 
   if (v==="municipios"){
-    const m = await getData("municipios");
-    $("rightTitle").textContent = "Municípios (Regional de Cáceres)";
-    const q = ($("munInp")?.value || state.municipioQuery || "").trim();
-    state.municipioQuery = q;
-    if (!q){
-      $("metaTxt").textContent = "Digite um município e clique Atualizar.";
-      return;
-    }
-    const key = "municipio"; // no CSV filtrado ficou com acento => vira "municipio"
-    const qn = normKey(q);
-    const row = m.find(r=>normKey(r[key]||"")===qn) || m.find(r=>normKey(r[key]||"").includes(qn));
-    if (!row){
-      $("metaTxt").textContent = `Não achei "${q}" nesse CSV (regional).`;
-      return;
-    }
+    const mun = await getData("municipios");
+    const name = $("munSel")?.value || String(mun[0]?.municipio||"");
+    $("rightTitle").textContent = `Município — ${name}`;
+
+    const row = mun.find(r=>String(r.municipio||"").trim()===name) || mun[0];
     const years = Object.keys(row).filter(k=>/^\d{4}$/.test(k)).sort();
-    const series = years.map(y=>toNum(row[y]));
-    state.chartMain = lineChart(cMain, years, [{label:String(row[key]), data:series}], "Evolução anual");
-    state.chartAlt  = barChart(cAlt, years.slice(-8), "Total", series.slice(-8), "Últimos anos");
-    $("metaTxt").textContent = "OK";
+    const values = years.map(y=>toNum(row[y]));
+
+    state.chart = makeLine(c, years, [{label:name, data:values}], `Evolução anual — ${name}`, values);
+
+    state.currentExport.filename = `municipio_${name}.csv`;
+    state.currentExport.columns = ["Ano","Total"];
+    state.currentExport.rows = years.map((y,i)=>({Ano:y, Total: values[i]}));
+    $("metaTxt").textContent = "Fonte: DATASUS (seu CSV) • Regional de Cáceres";
     return;
   }
 }
@@ -518,6 +618,24 @@ $("btnReload").addEventListener("click", async ()=>{
     showErr(String(e.stack||e.message||e));
     setStatus(false, "Deu erro (veja caixa de erro).");
   }
+});
+
+$("btnPng").addEventListener("click", ()=>{
+  if (!state.chart) return alert("Sem gráfico para baixar.");
+  const url = state.chart.toBase64Image("image/png", 1);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `grafico_${state.view}.png`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+});
+
+$("btnCsv").addEventListener("click", ()=>{
+  const ex = state.currentExport;
+  if (!ex || !ex.columns?.length) return alert("Sem dados para baixar.");
+  const csv = rowsToCSV(ex.columns, ex.rows);
+  downloadText(ex.filename, csv);
 });
 
 /* ===== start ===== */
