@@ -26,7 +26,6 @@
         linear-gradient(180deg, var(--bg0), var(--bg1));
       min-height:100vh;
     }
-
     header{
       padding: 16px 18px;
       border-bottom: 1px solid var(--stroke);
@@ -46,13 +45,13 @@
 
     main{max-width:1200px; margin:14px auto 60px; padding:0 18px;}
 
-    /* ✅ ALTURA: faz as duas colunas esticarem na mesma altura da linha */
+    /* ✅ LAYOUT FIXO: esquerda 360px, gráfico 720px (dobro). Mesma altura fixa. */
     .grid{
       display:grid;
-      grid-template-columns: 360px 360px; /* se quiser 360px e gráfico igual, mantém */
+      grid-template-columns: 360px 720px;
       gap:14px;
-      align-items:stretch; /* IMPORTANTE */
       justify-content:center;
+      align-items:stretch;
     }
 
     .panel{
@@ -61,10 +60,9 @@
       border-radius: var(--radius);
       box-shadow: var(--shadow);
       overflow:hidden;
-
-      /* deixa o grid poder esticar o item */
-      height:100%;
+      height: 560px; /* ✅ ajuste aqui (ex: 620px) */
     }
+
     .hd{
       padding:14px;
       border-bottom:1px solid var(--stroke);
@@ -72,6 +70,7 @@
       gap:10px;
     }
     .hd b{font-size:13px;}
+
     .tabs{display:flex; flex-wrap:wrap; gap:8px; padding:10px;}
     .tab{
       border:1px solid var(--stroke); background: rgba(255,255,255,.65);
@@ -84,6 +83,7 @@
       box-shadow: 0 12px 25px rgba(236,72,153,.12);
     }
     .content{padding:12px 14px 14px;}
+
     label{font-size:12px; color:var(--muted); display:block; margin-bottom:6px;}
     select,input{
       width:100%; padding:10px; border-radius:12px; border:1px solid var(--stroke);
@@ -91,6 +91,7 @@
     }
     .row{display:flex; gap:10px; flex-wrap:wrap; align-items:end;}
     .field{flex:1 1 160px; min-width:160px;}
+
     .btnRow{display:flex; gap:10px; margin-top:10px; flex-wrap:wrap;}
     .btn{
       border:1px solid rgba(236,72,153,.35);
@@ -100,6 +101,7 @@
     }
     .btn.ghost{background: rgba(255,255,255,.6); border-color: var(--stroke);}
     .mini{font-size:12px; color:var(--muted); margin-top:8px;}
+
     .list{ margin-top:10px; display:flex; gap:8px; flex-wrap:wrap; }
     .chip{
       font-size:12px; padding:7px 10px; border-radius:999px;
@@ -108,21 +110,14 @@
     }
     .chip button{ border:none; background:transparent; cursor:pointer; font-weight:900; color:rgba(59,10,42,.7); }
 
-    /* ✅ Painel do gráfico vira flex para ocupar TODA altura disponível */
-    .rightPanel{
-      display:flex;
-      flex-direction:column;
-    }
+    /* ✅ Painel do gráfico ocupa a altura fixa e o canvas ocupa o resto sem loop */
+    .rightPanel{ display:flex; flex-direction:column; height: 560px; }
     .chartWrap{
       padding:12px 14px 14px;
-      flex:1;                 /* ocupa o restante da altura */
-      min-height: 360px;      /* garante “amplo” mesmo com poucos controles */
-      display:flex;
+      flex:1 1 auto;
+      height: calc(560px - 52px); /* header ~52px */
     }
-    #chartMain{
-      width:100% !important;
-      height:100% !important; /* ocupa toda a altura do chartWrap */
-    }
+    #chartMain{ width:100% !important; height:100% !important; display:block; }
 
     .err{
       padding:10px 14px; border-top:1px solid var(--stroke);
@@ -131,9 +126,10 @@
       white-space: pre-wrap; display:none;
     }
 
-    @media (max-width: 980px){
-      .grid{grid-template-columns:1fr; justify-content:stretch;}
-      .chartWrap{min-height: 320px;}
+    @media (max-width: 1150px){
+      .grid{ grid-template-columns: 1fr; justify-content:stretch; }
+      .panel, .rightPanel{ height:auto; }
+      .chartWrap{ height: 360px; }
     }
   </style>
 </head>
@@ -147,9 +143,8 @@
       <div class="sub">Painel-Dengue feito por Ernandes Sobreira • Dados DATASUS 2025</div>
     </div>
   </div>
-
-  <!-- ✅ REMOVIDO: “OK: 12 linhas / status” -->
-  <div style="font-size:12px;color:var(--muted);"> </div>
+  <!-- ✅ Sem “OK: ... linhas” -->
+  <div style="font-size:12px;color:var(--muted)"></div>
 </header>
 
 <main>
@@ -226,7 +221,6 @@ function normKey(s){
     .replace(/[^a-z0-9]+/g,"")
     .trim();
 }
-
 function toNum(x){
   if (x===null || x===undefined) return NaN;
   const s = String(x).trim();
@@ -245,13 +239,16 @@ function pickKey(sampleRow, includesList){
   return null;
 }
 
-/* lixo de rodapé/observação */
+/* lixo de rodapé / observação */
 function isGarbageText(s){
   const t = String(s||"").toLowerCase();
   return t.includes("fonte") || t.includes("minist") || t.includes("sinan") ||
          t.includes("sistema") || t.includes("inform") || t.includes("svsa") ||
          t.includes("notifica") || t.includes("agravo") || t.includes("net") ||
          t.includes("dados disponibilizados");
+}
+function isTotalLabel(s){
+  return normKey(s)==="total";
 }
 
 /* download */
@@ -273,18 +270,17 @@ function rowsToCSV(columns, rows){
     rows.map(r => columns.map(c=>esc(r[c])).join(";")).join("\n") + "\n";
 }
 
-/* fetch CSV com fallback latin1 para corrigir acentos */
+/* fetch CSV com fallback latin1 p/ acentos */
 async function fetchCSV(url){
   const res = await fetch(url, {cache:"no-store"});
   if (!res.ok){
-    throw new Error(`Falha ao baixar: ${url}\nHTTP ${res.status} ${res.statusText}\n\n👉 Confira se o arquivo está na RAIZ do repo e Pages em / (root).`);
+    throw new Error(`Falha ao baixar: ${url}\nHTTP ${res.status} ${res.statusText}\n\n👉 Confirme se o arquivo está na RAIZ do repo (mesmo nível do index.html).`);
   }
   const buf = await res.arrayBuffer();
   let text = new TextDecoder("utf-8", {fatal:false}).decode(buf);
   if ((text.match(/\uFFFD/g)||[]).length >= 2){
     text = new TextDecoder("latin1", {fatal:false}).decode(buf);
   }
-
   const parsed = Papa.parse(text, {header:true, skipEmptyLines:true, delimiter:";"});
   const fields = parsed.meta?.fields || [];
   const headerMap = {};
@@ -295,7 +291,6 @@ async function fetchCSV(url){
     for (const k of Object.keys(r)) o[normKey(k)] = r[k];
     return o;
   });
-
   return {rows, headerMap};
 }
 
@@ -320,7 +315,6 @@ function yRangeReadable(values){
   if (min > 0) return {min: Math.max(0, min - pad), max: max + pad};
   return {min: 0, max: max + pad};
 }
-
 function makeChart({type, labels, datasets, title, yValues=[], fixedY=null}){
   const ctx = $("chartMain");
   const yr = fixedY ? fixedY : yRangeReadable(yValues);
@@ -331,6 +325,8 @@ function makeChart({type, labels, datasets, title, yValues=[], fixedY=null}){
     options:{
       responsive:true,
       maintainAspectRatio:false,
+      resizeDelay: 150,            // ✅ evita loop de resize
+      animation:false,             // ✅ mais estável
       interaction:{mode:"index", intersect:false},
       plugins:{
         legend:{ display:true, labels:{ usePointStyle:true, boxWidth:10, font:{size:12} } },
@@ -338,18 +334,9 @@ function makeChart({type, labels, datasets, title, yValues=[], fixedY=null}){
       },
       layout:{ padding:{ left:10, right:16, top:8, bottom:10 } },
       scales:{
-        x:{
-          ticks:{ font:{ size:12 }, maxRotation: 35, autoSkip: true }
-        },
-        y:{
-          min: yr.min,
-          max: yr.max,
-          ticks:{
-            font:{ size:12 },
-            maxTicksLimit: 6,
-            callback:(v)=>fmt(v)
-          }
-        }
+        x:{ ticks:{ font:{ size:12 }, maxRotation: 35, autoSkip: true } },
+        y:{ min: yr.min, max: yr.max,
+            ticks:{ font:{ size:12 }, maxTicksLimit: 6, callback:(v)=>fmt(v) } }
       },
       elements:{ line:{ tension:0.25, borderWidth:2 }, point:{ radius:2, hoverRadius:5 } }
     }
@@ -383,10 +370,7 @@ async function buildControls(){
 
   if (v==="brasil"){
     const {rows:raw} = await getData("brasil");
-
-    // ✅ remove qualquer linha que não tenha ano YYYY (tira “Dados disponibilizados…” etc.)
-    const br = raw.filter(r => /^\d{4}$/.test(String(r.ano||"").trim()));
-
+    const br = raw.filter(r => /^\d{4}$/.test(String(r.ano||"").trim())); // ✅ sem lixo
     const years = br.map(r=>String(r.ano||"").trim());
 
     addField(`<label>Modo</label>
@@ -417,7 +401,7 @@ async function buildControls(){
     const years = es.map(r=>String(r[yearKey]||"").trim()).filter(y=>/^\d{4}$/.test(y));
 
     const keys = Object.keys(es[0]||{})
-      .filter(k=>k!==yearKey && k!=="total"); // ✅ já exclui total
+      .filter(k=>k!==yearKey && k!=="total" && k!=="Total"); // ✅ remove total
 
     addField(`<label>Visualização</label>
       <select id="escModo">
@@ -453,7 +437,6 @@ async function buildControls(){
       if (!state.selectedUFs.includes(uf)) state.selectedUFs.push(uf);
       buildControls().then(render);
     });
-
     box.appendChild(btn);
 
     const chips = renderChips(state.selectedUFs, (i)=>{
@@ -461,7 +444,6 @@ async function buildControls(){
       buildControls().then(render);
     });
     box.appendChild(chips);
-
     $("extraArea").appendChild(box);
 
     if (state.selectedUFs.length===0) state.selectedUFs=[ufs[0]];
@@ -490,7 +472,6 @@ async function buildControls(){
       if (!state.selectedMuns.includes(name)) state.selectedMuns.push(name);
       buildControls().then(render);
     });
-
     box.appendChild(btn);
 
     const chips = renderChips(state.selectedMuns, (i)=>{
@@ -498,7 +479,6 @@ async function buildControls(){
       buildControls().then(render);
     });
     box.appendChild(chips);
-
     $("extraArea").appendChild(box);
 
     if (state.selectedMuns.length===0) state.selectedMuns=[muns[0]];
@@ -509,16 +489,15 @@ async function buildControls(){
 async function render(){
   clearErr();
   destroyChart();
-
   state.currentExport = { filename:"recorte.csv", columns:[], rows:[] };
+
   const v = state.view;
 
   if (v==="brasil"){
     const {rows:raw} = await getData("brasil");
-    const br = raw.filter(r => /^\d{4}$/.test(String(r.ano||"").trim())); // ✅ só anos válidos
+    const br = raw.filter(r => /^\d{4}$/.test(String(r.ano||"").trim())); // ✅ remove “Dados disponibilizados…”
 
     $("rightTitle").textContent="Brasil — dengue";
-
     const modo = $("brModo")?.value || "anual";
 
     if (modo==="anual"){
@@ -528,7 +507,7 @@ async function render(){
       state.chart = makeChart({
         type:"line",
         labels,
-        datasets:[{label:"Casos (Brasil)", data: vals}],  // ✅ sem “Total”
+        datasets:[{label:"Casos (Brasil)", data: vals}],
         title:"Evolução anual — Brasil",
         yValues: vals
       });
@@ -549,7 +528,6 @@ async function render(){
       const arr = MONTHS.map(m=>toNum(row[normKey(m)] || row[m]));
       return arr;
     }
-
     const A = seriesForYear(anoA);
     const datasets = [{label:`${anoA}`, data:A.map(x=>Number.isFinite(x)?x:null)}];
     let allVals = A.filter(Number.isFinite);
@@ -579,7 +557,6 @@ async function render(){
       }
       return obj;
     });
-
     $("metaTxt").textContent="Fonte: DATASUS (seu CSV) • Mensal";
     return;
   }
@@ -592,9 +569,11 @@ async function render(){
     const mascKey = pickKey(sx[0], ["mascul"]);
     const femKey  = pickKey(sx[0], ["femin"]);
 
-    const labels = sx.map(r=>String(r[yearKey]||"").trim()).filter(y=>/^\d{4}$/.test(y));
-    const masc = sx.filter(r=>/^\d{4}$/.test(String(r[yearKey]||"").trim())).map(r=>toNum(r[mascKey])).map(x=>Number.isFinite(x)?x:0);
-    const fem  = sx.filter(r=>/^\d{4}$/.test(String(r[yearKey]||"").trim())).map(r=>toNum(r[femKey])).map(x=>Number.isFinite(x)?x:0);
+    const filtered = sx.filter(r=>/^\d{4}$/.test(String(r[yearKey]||"").trim()));
+    const labels = filtered.map(r=>String(r[yearKey]||"").trim());
+
+    const masc = filtered.map(r=>toNum(r[mascKey])).map(x=>Number.isFinite(x)?x:0);
+    const fem  = filtered.map(r=>toNum(r[femKey])).map(x=>Number.isFinite(x)?x:0);
     const all  = masc.concat(fem);
 
     state.chart = makeChart({
@@ -611,7 +590,7 @@ async function render(){
     state.currentExport.filename="sexo_anual.csv";
     state.currentExport.columns=["Ano","Masculino","Feminino"];
     state.currentExport.rows = labels.map((y,i)=>({Ano:y, Masculino: masc[i], Feminino: fem[i]}));
-    $("metaTxt").textContent="Fonte: DATASUS (seu CSV) • Anual";
+    $("metaTxt").textContent="Fonte: DATASUS (seu CSV)";
     return;
   }
 
@@ -623,7 +602,7 @@ async function render(){
     const years = es.map(r=>String(r[yearKey]||"").trim()).filter(y=>/^\d{4}$/.test(y));
 
     const keys = Object.keys(es[0]||{})
-      .filter(k=>k!==yearKey && k!=="total"); // ✅ sem total
+      .filter(k=>k!==yearKey && k!=="total" && k!=="Total"); // ✅ remove total
 
     const modo = $("escModo")?.value || "barras";
 
@@ -633,7 +612,7 @@ async function render(){
 
       const pairs = keys
         .map(k=>({label: headerMap[k] || k, v: toNum(row[k])}))
-        .filter(o=>o.label && !isGarbageText(o.label) && normKey(o.label)!=="total"); // ✅ remove qualquer “total”
+        .filter(o=>o.label && !isGarbageText(o.label) && !isTotalLabel(o.label));
 
       const labels = pairs.map(p=>p.label);
       const vals = pairs.map(p=>Number.isFinite(p.v)?p.v:0);
@@ -641,7 +620,7 @@ async function render(){
       state.chart = makeChart({
         type:"bar",
         labels,
-        datasets:[{label:`Casos ${ano}`, data: vals}],  // ✅ sem total
+        datasets:[{label:`Casos ${ano}`, data: vals}],
         title:`Escolaridade — ${ano}`,
         yValues: vals
       });
@@ -687,7 +666,7 @@ async function render(){
       faixa: String(r[faixaKey]||"").trim(),
       v: toNum(r[totalKey])
     }))
-    .filter(p=>p.faixa && !isGarbageText(p.faixa) && normKey(p.faixa)!=="total"); // ✅ remove “Total”
+    .filter(p=>p.faixa && !isGarbageText(p.faixa) && !isTotalLabel(p.faixa)); // ✅ remove “Total”
 
     pairs.sort((a,b)=>(Number.isFinite(b.v)?b.v:0)-(Number.isFinite(a.v)?a.v:0));
 
@@ -697,7 +676,7 @@ async function render(){
     state.chart = makeChart({
       type:"bar",
       labels,
-      datasets:[{label:"Casos", data: vals}], // ✅ sem total
+      datasets:[{label:"Casos", data: vals}],
       title:"Distribuição por faixa etária",
       yValues: vals
     });
@@ -712,8 +691,7 @@ async function render(){
   if (v==="estados"){
     const {rows:est} = await getData("estados");
     $("rightTitle").textContent="Estados — comparação";
-
-    if (!state.selectedUFs.length) { $("metaTxt").textContent="Fonte: DATASUS (seu CSV)"; return; }
+    if (!state.selectedUFs.length) return;
 
     const years = Object.keys(est[0]||{}).filter(k=>/^\d{4}$/.test(k)).sort();
     const datasets = [];
@@ -759,8 +737,7 @@ async function render(){
 
     const munKey = pickKey(mun[0], ["municip","munic"]);
     const years = Object.keys(mun[0]||{}).filter(k=>/^\d{4}$/.test(k)).sort();
-
-    if (!state.selectedMuns.length) { $("metaTxt").textContent="Fonte: DATASUS (seu CSV)"; return; }
+    if (!state.selectedMuns.length) return;
 
     const datasets = [];
     let globalMax = 0;
